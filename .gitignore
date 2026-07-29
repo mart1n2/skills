@@ -1,0 +1,20 @@
+# Secrets — never commit a filled-in .env, at any depth, including the .env each
+# skill directory expects (audit/*/.env, analysis/*/.env). .env.example is tracked.
+.env
+.env.local
+**/.env
+**/.env.local
+
+# Generated engagement artifacts
+audit-workspace/
+incident-workspace/
+reports/
+
+# Foundry / build output
+out/
+cache/
+broadcast/
+lib/
+
+# OS
+.DS_Store

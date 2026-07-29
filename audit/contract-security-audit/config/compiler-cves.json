@@ -1,0 +1,83 @@
+{
+  "_note": "Curated version-family discovery hints for check-compiler.sh, not an authoritative advisory database or proof that a target is affected. Confirm the exact production compiler, settings, source trigger, and deployed bytecode against the linked official advisory lists.",
+  "_updated": "2026-07-15",
+  "_sources": {
+    "solidity": "https://github.com/ethereum/solidity/blob/develop/docs/bugs.json",
+    "vyper": "https://github.com/vyperlang/vyper/security/advisories"
+  },
+  "solidity": [
+    {
+      "id": "SOL-2026-3",
+      "description": "Inheritance-order reversal can be triggered by the storage-end warning in 0.8.29 through 0.8.35; confirm the exact warning and inheritance-dependent construct",
+      "severity": "REVIEW",
+      "match": { "major": 0, "minor": 8, "patch_gte": 29, "patch_lte": 35 }
+    },
+    {
+      "id": "SOL-2026-2",
+      "description": "Unsound stack spilling in intersecting mutual-recursion cycles before 0.8.36; requires via-IR and the advisory's call-graph/complexity conditions",
+      "severity": "REVIEW",
+      "match_ranges": [
+        { "major": 0, "minor": 7, "patch_gte": 2 },
+        { "major": 0, "minor": 8, "patch_lte": 35 }
+      ]
+    },
+    {
+      "id": "SOL-2026-1",
+      "description": "Transient/persistent storage clearing helper collision in 0.8.28 through 0.8.33; requires via-IR, Cancun-or-later EVM target, and both clearing patterns",
+      "severity": "REVIEW",
+      "match": { "major": 0, "minor": 8, "patch_gte": 28, "patch_lte": 33 }
+    },
+    {
+      "id": "SOL-OVERFLOW",
+      "description": "Pre-0.8 arithmetic lacks Solidity 0.8 checked-arithmetic defaults; review the exact operations, libraries, assembly, and intended wrapping semantics",
+      "severity": "REVIEW",
+      "match": { "major": 0, "minor_lt": 8 }
+    },
+    {
+      "id": "SOL-2022-6",
+      "description": "ABI tuple re-encoding head overflow introduced in 0.5.8 and fixed in 0.8.16; requires the advisory's tuple/static-array and ABI encoder conditions",
+      "severity": "REVIEW",
+      "match_ranges": [
+        { "major": 0, "minor": 5, "patch_gte": 8 },
+        { "major": 0, "minor": 6 },
+        { "major": 0, "minor": 7 },
+        { "major": 0, "minor": 8, "patch_lte": 15 }
+      ]
+    },
+    {
+      "id": "SOL-2022-7",
+      "description": "Storage-write removal before conditional termination in 0.8.13 through 0.8.16; requires the advisory's Yul optimizer and assembly control-flow conditions",
+      "severity": "REVIEW",
+      "match": { "major": 0, "minor": 8, "patch_gte": 13, "patch_lte": 16 }
+    },
+    {
+      "id": "SOL-2022-4",
+      "description": "Inline-assembly memory writes may be removed in 0.8.13 and 0.8.14; requires the legacy pipeline/Yul optimizer and advisory-specific assembly pattern",
+      "severity": "REVIEW",
+      "match": { "major": 0, "minor": 8, "patch_gte": 13, "patch_lte": 14 }
+    }
+  ],
+  "vyper": [
+    {
+      "id": "CVE-2023-32675",
+      "description": "Potential reentrancy-lock key collision in affected released versions; confirm the exact compiler release and multiple nonreentrant keys",
+      "severity": "REVIEW",
+      "match_ranges": [
+        { "major": 0, "minor": 2, "patch_gte": 15 },
+        { "major": 0, "minor": 3, "patch_lte": 0 }
+      ]
+    },
+    {
+      "id": "VYPER-ADVISORY",
+      "description": "Older Vyper release; resolve the exact production build and check official advisories and their trigger conditions",
+      "severity": "REVIEW",
+      "match": { "major": 0, "minor": 3, "patch_lt": 10 }
+    },
+    {
+      "id": "CVE-2024-24561",
+      "description": "Potential range-bound-check issue in affected releases; confirm the exact advisory conditions and compiled source pattern",
+      "severity": "REVIEW",
+      "match": { "major": 0, "minor": 3, "patch_gte": 0, "patch_lte": 9 }
+    }
+  ]
+}

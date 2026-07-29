@@ -1,0 +1,6 @@
+# Secrets
+.env
+
+# Generated per-incident artifacts (evidence, traces, PoC output, reports)
+incident-workspace/
+reports/

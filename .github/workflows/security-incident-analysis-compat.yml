@@ -1,0 +1,29 @@
+name: security-incident-analysis compatibility
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "analysis/security-incident-analysis/**"
+      - ".github/workflows/security-incident-analysis-compat.yml"
+  pull_request:
+    paths:
+      - "analysis/security-incident-analysis/**"
+      - ".github/workflows/security-incident-analysis-compat.yml"
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash portability and fail-closed regression suite
+        shell: bash
+        run: bash analysis/security-incident-analysis/scripts/test-skill.sh
+      - name: zsh invocation smoke (macOS)
+        if: runner.os == 'macOS'
+        shell: zsh {0}
+        run: bash analysis/security-incident-analysis/scripts/test-skill.sh
