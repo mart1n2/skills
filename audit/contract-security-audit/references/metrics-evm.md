@@ -642,7 +642,7 @@ Express the result as a tree per sink. Each leaf is a `(entry-sequence, accumula
 
 Manually annotate which entry-sequences the protocol team *intends* to authorize each sink. Set difference: `reachable - intended` = candidate chains.
 
-If the Atlas is used, reconcile its material leads and limitations in `coverage.md`. Audit closure still depends on claim-bound evidence, candidate dispositions, independent validation, human acceptance, and explicit residual gaps—not completion of this particular recipe.
+If the Atlas is used, reconcile its material leads and limitations in `coverage.md`. Audit closure still depends on claim-bound evidence, candidate dispositions, independent validation, and explicit residual gaps—not completion of this particular recipe. Human sign-off is the separate report gate.
 
 ---
 

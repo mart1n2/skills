@@ -16,26 +16,55 @@ mandatory format.
 
 An audit agent is a search tool, not an oracle. Candidate volume is not success.
 The useful output is the set of non-duplicate, threat-model-reachable defects whose
-exact claims are supported by independently reviewable evidence, survive
-falsification and review, and are accepted by a human auditor.
+exact claims are supported by independently reviewable evidence and survive
+falsification and independent review.
 
 Keep these sets separate:
 
 ```text
 candidates != findings
-findings = human_accept(independently_validate(evidence_bind(candidates)))
+findings = independently_validate(evidence_bind(candidates))
+report   = human_signoff(findings)
 ```
 
-`findings.md` contains accepted findings only. Every unaccepted hypothesis stays
-in `triage/candidates.md`, including plausible but blocked work.
+**Proof is the admission gate; human sign-off is the report gate.** A finding is
+true or false on its evidence, so `findings.md` admits a candidate as soon as
+claim-bound evidence and independent validation close it — no human decision is
+required to record it. A human auditor still signs the finding, severity, and
+disclosure decision before any report is issued, internal or external; run
+`triage-check.sh --report` to enforce that. Every candidate that is not
+evidence-closed stays in `triage/candidates.md`, including plausible but blocked
+work.
+
+## Proof, Not Paperwork
+
+Bind a claim to its target by **identity** — chain, deployment/program/package ID,
+source revision, build/profile, and the workspace path of each relied-on artifact —
+and to its evidence by a **retained, resolvable artifact** that a reviewer can open.
+Those are the load-bearing facts.
+
+SHA-256 digests are integrity bookkeeping on top of that binding, and they are
+**optional for internal review**: `triage-check.sh` does not require the
+`target-lock.md` digest, per-artifact digests, or evidence digests by default.
+Record them when integrity actually matters — client or public delivery, a
+long-running engagement over a moving baseline, a disputed or shared workspace, or
+any artifact that must be provably unchanged later — and run
+`triage-check.sh --strict-hashes` to require them everywhere.
+
+One rule always holds: **a digest that is recorded must be correct.** A wrong or
+stale digest is a hard failure, because a false integrity claim is worse than no
+integrity claim. An absent digest is not a failure; a missing, unreadable, or
+unbound *proof artifact* still is.
 
 ## Non-Negotiable Norms
 
 1. **Real target.** Bind the evidence to the scoped production code or a
-   revision-pinned build through the current `target-lock.md` digest and the
-   exact `T-NN` target artifacts material to the claim. Target identity in the
-   lock and `scope.md` must match. Models and reconstructions are valid only to
-   the extent their correspondence and deviations are explicit.
+   revision-pinned build through the target identity recorded in
+   `target-lock.md` and the exact `T-NN` target artifacts material to the claim.
+   Target identity in the lock and `scope.md` must match. The lock digest is
+   optional (see *Proof, Not Paperwork*); the identity and artifact set are not.
+   Models and reconstructions are valid only to the extent their correspondence
+   and deviations are explicit.
 2. **Real actor path.** Start from an actor and capability set allowed by the
    stated threat model—for example an unprivileged user, compromised signer,
    malicious privileged role, validator, oracle, or governance coalition. Do not
@@ -55,8 +84,11 @@ in `triage/candidates.md`, including plausible but blocked work.
    may reproduce the recorded method, use a different sound method, or do both.
    The validator independently challenges scope fidelity, reachability, impact,
    falsification, deduplication, and cost versus impact.
-7. **Human acceptance.** Agents may propose, reproduce, reject, and recommend;
-   a human auditor makes the final finding and severity decision.
+7. **Human sign-off before reporting.** Evidence and independent validation admit
+   a finding to `findings.md`; a human auditor then signs the finding, severity,
+   and disclosure decision before any report is issued. Agents propose,
+   reproduce, validate, reject, and recommend — they do not release a report on
+   their own authority.
 
 These are claim-acceptance norms, not restrictions on how vulnerabilities are
 found or verified. Manual review, agents, SAST, fuzzing, invariant testing,
@@ -70,7 +102,7 @@ Use exactly one current status per candidate:
 
 ```text
 PROPOSED -> HUNTING -> REPRODUCED -> INDEPENDENTLY-VALIDATED -> HUMAN-ACCEPTED
-                |            |                    |
+                |            |            (findings.md)          (report gate)
                 +----------> REJECTED <-----------+
                 +----------> DUPLICATE
                 +----------> OUT-OF-SCOPE
@@ -84,26 +116,27 @@ Status meanings:
 | `PROPOSED` | Concrete candidate schema is complete; verification is not yet complete. |
 | `HUNTING` | An owner is tracing reachability or developing evidence. |
 | `REPRODUCED` | Compatibility status name: the producer has a reviewable verification package supporting the claim. It need not be an executable PoC. |
-| `INDEPENDENTLY-VALIDATED` | A different reviewer independently checked the claim with a recorded sound method and all triage gates passed. |
-| `HUMAN-ACCEPTED` | Human auditor promoted it to `findings.md`. |
+| `INDEPENDENTLY-VALIDATED` | A different reviewer independently checked the claim with a recorded sound method and all triage gates passed. **Terminal and findings-eligible:** record it in `findings.md` now. |
+| `HUMAN-ACCEPTED` | A human auditor signed the finding, severity, and disclosure decision. Required for every recorded finding before a report is issued. |
 | `REJECTED` | Evidence disproves a required condition; record the reason and evidence. |
 | `DUPLICATE` | Same root cause and affected invariant as a known candidate/finding. |
 | `OUT-OF-SCOPE` | Valid lead outside the revision, deployment, component, or threat model. |
 | `INCONCLUSIVE` | Plausible, but state, dependencies, tooling, determinism, or proof is incomplete. |
 
 Never relabel blocked or incomplete verification as `REJECTED`. Never promote
-`REPRODUCED` directly to `findings.md` without independent validation and human
-acceptance.
+`REPRODUCED` directly to `findings.md` without independent validation — that gate
+is about proof, and it does not move.
 
 ## Candidate Schema
 
 Before hunting begins, every candidate row and detail block must contain:
 
 - **Candidate ID:** stable `C-NN` identifier.
-- **Target-lock binding:** SHA-256 of the complete `target-lock.md` plus the
-  canonical comma-separated set of target artifact IDs the claim depends on
-  (for example `T-01,T-03`, with no spaces). Every listed ID must resolve to a
-  verified artifact-manifest row in that lock.
+- **Target binding:** the canonical comma-separated set of target artifact IDs the
+  claim depends on (for example `T-01,T-03`, with no spaces); every listed ID must
+  resolve to an artifact-manifest row in `target-lock.md`. The `target-lock.md`
+  SHA-256 is an optional integrity field: leave it `N/A` for internal review, and
+  if you do record it, it must equal the current lock digest.
 - **Target:** component, code revision, deployment/address or package/program ID,
   and production build/configuration profile.
 - **Threat actor / entry:** real function/instruction/PTB entry or other trigger,
@@ -121,7 +154,7 @@ Before hunting begins, every candidate row and detail block must contain:
 - **Dedup key:** canonical `root-cause|invariant|sink` key and known-issue search
   result.
 - **Owner and provenance:** producer, runtime/model/tool context if relevant,
-  timestamp, source/evidence revision, and artifact hashes.
+  timestamp, and source/evidence revision. Artifact digests are optional here.
 - **Potential severity/materiality:** the highest credible severity label under
   the engagement's taxonomy, followed by the separate closure class
   ` / MATERIAL` or ` / NON-MATERIAL` (for example `Severity 1 / MATERIAL` or
@@ -176,8 +209,9 @@ it stores verification manifests for any method. Put executable artifacts under
 workspace-controlled paths such as `evidence/`. The manifest must make these
 facts recoverable:
 
-1. target-lock SHA-256 and the exact `T-NN` artifact-ID set, matching the
-   candidate and resolving to verified target artifacts;
+1. the exact `T-NN` artifact-ID set, matching the candidate and resolving to
+   target-lock artifacts (the lock SHA-256 field is optional; a recorded value
+   must match the current lock);
 2. target code revision and a build/profile or other target-identity procedure;
 3. chain, deployment/configuration, dependency revisions, target-fidelity grade,
    and a structured immutable/versioned state anchor appropriate to the claim
@@ -191,8 +225,10 @@ facts recoverable:
 8. action sequence or proof derivation;
 9. claimed impact/success criterion and method-appropriate falsification or
    control;
-10. workspace-relative verification/evidence/control paths, verified SHA-256
-   hashes, and environment/tool versions;
+10. workspace-relative verification/evidence/control paths that each resolve to a
+   retained non-empty artifact, plus environment/tool versions. Their SHA-256
+   values are optional for internal review and required under
+   `--strict-hashes`; any value you record is verified against the file;
 11. known deviations from production state;
 12. the repeatability result for executable evidence or proof-review result for
     non-executable evidence.
@@ -213,9 +249,11 @@ verification methods:
 
 ### 1. Target-Identity and Build-Fidelity Gate
 
-- Verify the `target-lock.md` digest, every claim-listed `T-NN` artifact digest,
-  and exact identity agreement between the lock and `scope.md`. A lock binds a
-  claim to a snapshot; it is not a discovery or validation method.
+- Verify that every claim-listed `T-NN` artifact resolves to a retained target
+  file and that lock identity agrees exactly with `scope.md`. A lock binds a
+  claim to a snapshot; it is not a discovery or validation method. Digests
+  strengthen that binding but are optional internally; any recorded digest is
+  verified.
 - Check chain-native deployment/program/package identifier and digest shape,
   then verify from primary chain/build artifacts that those identifiers actually
   correspond to the claimed revision, code and state. Hash/string consistency
@@ -225,9 +263,11 @@ verification methods:
   non-deployable configuration.
 - Record compiler, feature flags, optimizer/profile, package/program/bytecode
   identity, and build command.
-- If any identity field or target artifact changes, generate the new lock digest
-  and revalidate every affected candidate, manifest, validation, and finding.
-  Do not bulk-replace stale digests without re-checking the claim.
+- If any identity field or target artifact changes, revalidate every affected
+  candidate, manifest, validation, and finding against the new target, and
+  refresh any digest that was recorded. Do not bulk-replace stale digests
+  without re-checking the claim — that converts a detected drift into a silent
+  one.
 
 ### 2. Actor-and-Reachability Gate
 
@@ -259,11 +299,13 @@ verification methods:
   claim depends on them.
 - For executable evidence, establish repeatability appropriate to the method.
   For formal/source proofs, preserve the proof obligations and review trail.
-- Preserve the exact command or review procedure, artifacts, and result.
+- Preserve the exact command or review procedure, artifacts, and result. The
+  artifact must exist and be readable in the workspace; content-addressing it is
+  optional internally.
 
 ### 5. Deduplication Gate
 
-- Search `triage/known-issues.md`, accepted findings, upstream advisories, and
+- Search `triage/known-issues.md`, recorded findings, upstream advisories, and
   earlier candidates.
 - Two manifestations are duplicates when they share the same root cause,
   violated invariant, and affected sink. Link variants rather than inflating the
@@ -275,6 +317,11 @@ verification methods:
   liquidity, and opportunity cost.
 - Compare them with extractable value, victim loss, protocol insolvency,
   governance/control impact, or liveness impact.
+- State explicitly whether the claim reaches **loss of funds or assets** —
+  extraction, unbacked mint, insolvency, or permanent lock of user assets. That
+  answer, not the cleverness of the mechanism, is what admits a finding to
+  Critical or High (`methodology.md § I`), and an asset-loss claim is
+  `MATERIAL` for closure purposes.
 - Keep severity, deployment exposure, and evidence confidence separate.
 
 ## Multi-Step and Stateful Candidates
@@ -301,11 +348,12 @@ not.
 The validator starts from the registry, target lock, manifest, and immutable
 artifacts—not the producer's unstated live context:
 
-1. verify the target-lock SHA-256, claim-specific `T-NN` set and artifact hashes,
-   exact lock/scope identity match, target fidelity, and provenance;
-2. verify artifact hashes and inspect the documented execution/review procedure;
-   rerun or re-review it, use a different sound method, or do both, and record
-   which;
+1. verify the claim-specific `T-NN` set against the lock's artifact manifest,
+   exact lock/scope identity match, target fidelity, and provenance — plus any
+   digest the record does claim;
+2. open the primary artifacts and inspect the documented execution/review
+   procedure; rerun or re-review it, use a different sound method, or do both,
+   and record which;
 3. independently trace the stated actor and entry/trigger to the claimed effect;
 4. inspect setup for impossible state, hidden privilege, and pre-funding;
 5. challenge the impact criterion and method-appropriate falsification/control;
@@ -319,38 +367,59 @@ artifacts—not the producer's unstated live context:
 Disagreement is useful triage evidence. Record both analyses and the precise
 unresolved fact; do not average conclusions.
 
-## Promotion to Findings
+## Recording a Finding
 
-Only a human auditor promotes a candidate to `findings.md`. Promotion requires:
+A candidate enters `findings.md` on the strength of its proof. Recording requires:
 
 - schema complete;
 - candidate, verification manifest, independent validation, and finding agree on
-  the current target-lock SHA-256 and exact claim-specific `T-NN` set;
-- self-contained verification evidence against real scoped code;
+  the exact claim-specific `T-NN` set and target identity (and on the lock digest
+  wherever one is recorded);
+- self-contained verification evidence against real scoped code, with every
+  referenced artifact retained and openable in the workspace;
 - all false-positive gates passed;
 - independent validation recorded;
 - known-issue/dedup check complete;
-- cost-impact analysis complete;
-- human acceptance and severity rationale recorded.
+- cost-impact analysis complete, including the explicit asset-loss answer.
 
-Before final reporting, run:
+No human decision is needed to reach this point, and none of these obligations may
+be waived by one either.
+
+## Report Sign-off
+
+Before issuing any report — internal reference or external delivery — a human
+auditor records the acceptance decision, final severity, and disclosure decision
+for each finding (`Human decision` in `findings.md`, `Human decision / acceptor /
+date` in the validation record, candidate status `HUMAN-ACCEPTED`). This is where
+human judgment belongs: what gets released, under which severity label, to whom.
+It reviews the evidence; it does not substitute for it.
+
+Run the checker at each of the two gates:
 
 ```bash
+# Findings gate — evidence, validation, closure. Digests optional.
 bash "$SKILL_DIR/scripts/triage-check.sh" "$WORKSPACE"
+
+# Report gate — additionally requires human sign-off on every finding.
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$WORKSPACE"
+
+# External/client delivery — also require every integrity digest.
+bash "$SKILL_DIR/scripts/triage-check.sh" --report --strict-hashes "$WORKSPACE"
 ```
 
 The default final mode fails on an out-of-date generated index, non-substantive
-or divergent scope/target-lock identity, invalid or hash-mismatched target
-artifacts, stale claim-to-lock or `T-NN` bindings, malformed native deployment
-identifiers/digests or state anchors, non-numeric or arithmetically inconsistent
+or divergent scope/target-lock identity, unresolvable target artifacts, stale
+`T-NN` bindings or mismatched recorded digests, malformed native deployment
+identifiers or state anchors, non-numeric or arithmetically inconsistent
 coverage, unstructured material `INCONCLUSIVE` closure, invalid duplicate
 canonicals, non-terminal candidates, duplicate accepted keys,
-missing/hash-mismatched/out-of-workspace evidence, incomplete accepted findings,
+missing/out-of-workspace/hash-mismatched evidence, incomplete recorded findings,
 cross-section evidence links, and obvious
 candidate/evidence/validator/human-decision contradictions.
-`--bootstrap` is only for checking the structure of a newly initialized empty
-workspace. Script success is a mechanical precondition, not a substitute for
-independent review or human judgment.
+`--report` adds the human sign-off requirement; `--strict-hashes` adds the
+integrity-digest requirements. `--bootstrap` is only for checking the structure of
+a newly initialized empty workspace. Script success is a mechanical precondition,
+not a substitute for independent review or human judgment.
 
 Claims about a live deployment additionally require evidence bound to the
 deployed target and relevant state as defined in `SKILL.md` Phase 8. Replay is
@@ -369,18 +438,20 @@ Report at least:
 - candidates proposed;
 - candidates with verification evidence;
 - independently validated;
-- human accepted;
+- findings recorded (validated candidates in `findings.md`);
+- human signed off (subset of recorded findings cleared for reporting);
 - rejected;
 - duplicate;
 - out of scope;
 - inconclusive;
-- unresolved by severity potential;
-- acceptance rate = `human accepted / dispositioned non-duplicate candidates`.
+- unresolved by severity potential, and how many of those claim asset loss;
+- validation rate = `findings recorded / dispositioned non-duplicate candidates`.
 
-Use acceptance rate as a quality signal, not a target to game. Large candidate
-volume with poor acceptance usually indicates a broad scope, weak candidate
+Use the validation rate as a quality signal, not a target to game. Large candidate
+volume with few recorded findings usually indicates a broad scope, weak candidate
 schema, or missing false-positive gates. Narrow attack surfaces and explicit
-oracles usually improve useful throughput.
+oracles usually improve useful throughput. A gap between findings recorded and
+human signed off is normal mid-engagement and blocks only reporting.
 
 An audit cannot claim clean closure while a material candidate is unresolved or
 while a material obligation/surface selected by the audit has neither a

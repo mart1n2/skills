@@ -10,8 +10,10 @@ Purpose
 - Build scope, methodology, coverage, limitations, findings, and remediation
   content from the canonical workspace artifacts (`scope.md`, `target-lock.md`,
   `findings.md`, `coverage.md`) and retained workspace evidence.
-- Include an item in the Findings sections only when it is a human-accepted
-  finding in `findings.md`.
+- Include an item in the Findings sections only when it is a recorded finding in
+  `findings.md` that carries a human sign-off. An external report is a delivery:
+  gate it with `triage-check.sh --report --strict-hashes`, which also requires the
+  integrity digests that internal review leaves optional.
 - Do not use it as the candidate ledger, evidence store, or triage record.
 - Retain all internal audit-workspace data, including
   needed tmp data, after generating or publishing this report.
@@ -44,7 +46,7 @@ Truth and redaction rules
   not applicable; never fabricate a commit. Identify the target with its native
   deployment ID, code/package digest, and immutable state anchor. Resolve `latest`
   once; for EVM record both block number and block hash, not either one alone.
-- Report only accepted findings. Do not expose internal candidates or rejected leads.
+- Report only signed-off findings. Do not expose internal candidates or rejected leads.
 - Keep original severity separate from deployment exposure and remediation status.
 - When projecting the workspace deployment field, map `confirmed exploitable` to
   Confirmed Exposed, `conditionally exposed` to Conditionally Exposed,
@@ -444,10 +446,11 @@ Optional mappings can aid coverage communication but do not prove compliance.
 
 ### 6.4 Evidence Standard
 
-A security finding is included only after independent internal validation and
-human acceptance, and when the retained evidence states a specific affected
-baseline, reachable mechanism, violated security property, evidence-supported
-bounded consequence, relevant falsification result, and verification basis. The
+A security finding is included only after independent internal validation — which
+is what establishes the finding — and a human sign-off authorizing its release, and
+when the retained evidence states a specific affected baseline, reachable
+mechanism, violated security property, evidence-supported bounded consequence,
+relevant falsification result, and verification basis. The
 verification method may vary by finding. The report does not infer stronger
 deployment or state correspondence than the evidence supports.
 
@@ -478,13 +481,22 @@ the affected audited baseline. It is recorded independently from remediation.
 
 | Severity | Definition |
 |---|---|
-| Critical | Feasible exploitation can cause catastrophic or systemic loss, irreversible protocol control compromise, insolvency, or equivalent failure with little practical containment. |
-| High | Feasible exploitation can cause material asset loss, unauthorized privileged effects, prolonged loss of availability, or a major invariant violation. |
-| Medium | Exploitation can cause a meaningful security or economic invariant violation, but impact or feasibility is constrained by significant conditions. |
+| Critical | Feasible exploitation causes catastrophic or systemic loss of funds or assets: near-total drain, unbounded mint, insolvency, permanent lock of user assets, or protocol-control compromise that immediately reaches those funds, with little practical containment. |
+| High | Feasible exploitation causes material but bounded or recoverable loss of funds or assets: a capped drain, repeatable extraction, or loss confined to one asset, market, or user class. |
+| Medium | Exploitation causes a meaningful security or economic invariant violation with no demonstrated asset-loss path — unauthorized privileged effect, temporary loss of availability, griefing without extraction — or an asset impact so small or conditional that it is not material. |
 | Low | Exploitation has limited direct impact, requires restrictive conditions, or materially weakens defense in depth without independently causing a major loss. |
-| Informational | A human-accepted security-relevant correctness or defense-in-depth item without a demonstrated exploitable consequence. It sits outside the impact/exploitability matrix. Pure gas, style, and documentation notes belong in System Considerations. |
+| Informational | A security-relevant correctness or defense-in-depth item without a demonstrated exploitable consequence. It sits outside the impact/exploitability matrix. Pure gas, style, and documentation notes belong in System Considerations. |
+
+Critical and High are reserved for findings whose demonstrated or rigorously
+derived consequence is loss of funds or assets, including permanent loss of access
+to them. A privileged-role or governance issue qualifies only when the abused
+authority actually reaches funds, and the report states that path. Findings without
+an asset-loss consequence are reported at Medium or below.
 
 #### Engagement-Specific Severity Matrix
+
+Impact here is the asset-loss magnitude for Critical/High-eligible findings, and
+the non-asset security impact otherwise.
 
 | Impact / Exploitability | Low | Medium | High |
 |---|---|---|---|
@@ -832,7 +844,9 @@ FINAL RELEASE CHECKLIST - DELETE BEFORE PUBLICATION
 
 Content integrity
 [ ] Internal audit closure completed and approved.
-[ ] Every published finding exists in the accepted-finding register.
+[ ] `triage-check.sh --report --strict-hashes` passes on the audit workspace:
+    every finding is signed off and every integrity digest is recorded.
+[ ] Every published finding exists in `findings.md` with a human sign-off.
 [ ] Finding counts reconcile across Executive Summary, Overview, and Details.
 [ ] Original severity, exposure, and remediation status are separate and accurate.
 [ ] Every Fixed - Verified finding names the exact reviewed remediation revision.

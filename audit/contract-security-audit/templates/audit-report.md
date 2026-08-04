@@ -4,7 +4,9 @@ DEFAULT INTERNAL REFERENCE REPORT TEMPLATE
 Use this file for the default audit output. It summarizes candidate provenance,
 target IDs, evidence references, triage closure, findings, and coverage for the
 audit team. It is not publication-ready and must not be delivered externally
-without an explicit conversion/disclosure review. Generate
+without an explicit conversion/disclosure review. Issuing this report is a report-
+gate action: run `bash "$SKILL_DIR/scripts/triage-check.sh" --report "$WORKSPACE"`
+first, so every finding below carries a human sign-off. Generate
 `external-audit-report.md` only when the user explicitly requests an external,
 client-facing, public, or professional report. The canonical internal record
 remains the workspace artifacts. Retain all audit-relevant workspace data,
@@ -21,7 +23,7 @@ including needed `tmp/` artifacts.
 | Audit window | {START_DATE} – {END_DATE} |
 | Auditor | {AUDITOR} |
 | Source-of-truth | {GIT_COMMIT_OR_DEPLOYED_BYTECODE} |
-| Target lock | {`audit-workspace/{protocol}/target-lock.md` + SHA-256} |
+| Target lock | {`audit-workspace/{protocol}/target-lock.md`; + SHA-256 when the engagement records digests} |
 | Discovery and validation methods | {manual / agents / SAST / fuzz / symbolic / formal / differential / transaction or trace analysis / simulation / replay / source proof / other}; independent evidence-triage gate; chain references: metrics-{CHAIN}.md |
 
 ---
@@ -30,14 +32,14 @@ including needed `tmp/` artifacts.
 
 **Verdict:** {NO-MATERIAL-FINDINGS / FINDINGS-PRESENT / INCOMPLETE}
 
-**Headline accepted findings:**
-- {CRITICAL/HIGH summary, 1 line each}
+**Headline findings:**
+- {CRITICAL/HIGH summary, 1 line each — each must name its asset-loss consequence}
 
-**Accepted evidence distribution:** {CONFIRMED-DEPLOYED: N / CONFIRMED-RECONSTRUCTION: N / CONFIRMED-LOGIC: N / no accepted findings}. List every material finding below with its own grade; strong evidence for one finding does not upgrade the others.
+**Evidence distribution:** {CONFIRMED-DEPLOYED: N / CONFIRMED-RECONSTRUCTION: N / CONFIRMED-LOGIC: N / no recorded findings}. List every material finding below with its own grade; strong evidence for one finding does not upgrade the others.
 
 **Scope coverage:** {N} pinned target artifacts; {M} method-defined security obligations/surfaces. Open material coverage rows: {0 / count and link}.
 
-**Triage closure:** {A} accepted / {D} dispositioned non-duplicate candidates ({acceptance rate}%); material inconclusive candidates: {0 / count and IDs}.
+**Triage closure:** {R} findings recorded / {D} dispositioned non-duplicate candidates ({validation rate}%); of those, {S} carry human sign-off; material inconclusive candidates: {0 / count and IDs}.
 
 ---
 
@@ -55,19 +57,20 @@ including needed `tmp/` artifacts.
 - Discovery methods: {methods, versions/configuration, exact scope, raw artifact links}
 - Validation methods: {methods, versions/configuration, proof/test/trace/simulation artifacts}
 - Build/source identity: {forge / anchor build+verify / sui build+verify-source / other / not applicable with reason}
-- Target revision / deployed digest: {commit + bytecode/package/program hash}
+- Target revision / deployment identity: {commit + address/program/package ID; + bytecode/package digest when recorded}
 - Production build/profile: {exact release build command, compiler, features/optimizer}
 - State/config anchor: {block/slot/object versions or pre-deployment revision}
-- Target-lock SHA-256: {digest of complete `target-lock.md`}
-- Target artifact manifest: {`T-NN` → workspace-relative path + SHA-256 + role}
+- Target-lock SHA-256: {digest of complete `target-lock.md`, or NOT RECORDED — optional for internal review}
+- Target artifact manifest: {`T-NN` → workspace-relative path + role; + SHA-256 when recorded}
 - Deployment-identity evidence: {primary chain/build artifact proving the
   chain-native ID, deployed digest, revision and pinned state correspond}
 
 Target identity in `scope.md` and `target-lock.md` matches exactly. Every
-evidence-bearing claim below names the lock digest and exact `T-NN` subset it
-depends on. If target identity or artifact content changed during the audit,
-record the new lock and which claims were revalidated; do not silently replace a
-stale digest.
+evidence-bearing claim below names the exact `T-NN` subset it depends on, plus
+the lock digest wherever the engagement records digests (optional for internal
+review, required for external delivery). If target identity or artifact content
+changed during the audit, record which claims were revalidated; do not silently
+replace a stale digest.
 
 No method is excluded or accepted by label. Each finding below states what its evidence proves, its falsification result, and its residual assumptions.
 
@@ -80,16 +83,16 @@ No method is excluded or accepted by label. Each finding below states what its e
 | Proposed | {N} | {IDs} |
 | Hunting | {N} | {IDs} |
 | Verification evidence complete (`REPRODUCED` compatibility status) | {N} | {IDs} |
-| Independently validated | {N} | {IDs} |
-| Human accepted | {N} | {IDs → F-NN} |
+| Independently validated (recorded in `findings.md`) | {N} | {IDs → F-NN} |
+| Human signed off (cleared for reporting) | {N} | {IDs → F-NN} |
 | Rejected | {N} | {IDs + reason links} |
 | Duplicate | {N} | {IDs → canonical issue} |
 | Out of scope | {N} | {IDs + scope rationale} |
 | Inconclusive | {N} | {IDs + blocker} |
 
-**Acceptance rate:** `{human accepted} / {dispositioned non-duplicate candidates} = {%}`. Candidate volume is not treated as success.
+**Validation rate:** `{findings recorded} / {dispositioned non-duplicate candidates} = {%}`. Candidate volume is not treated as success.
 
-**Decision ownership:** Producers: {names/agents}; independent validators: {names/agents}; final human acceptor: {name/role}.
+**Decision ownership:** Producers: {names/agents}; independent validators: {names/agents}; human sign-off for this report: {name/role + date}.
 
 Known/rejected/fixed/duplicate ledger: `audit-workspace/{protocol}/triage/known-issues.md`.
 
@@ -124,18 +127,20 @@ For each lifecycle object, attach a state diagram with edges labeled by guard:
 
 ---
 
-## Accepted Findings
+## Findings
 
-Only independently validated, human-accepted candidates appear here. For each finding, include:
+Only independently validated candidates appear here — proof is the admission gate.
+Every finding in an issued report additionally carries a human sign-off. For each
+finding, include:
 
 ### F-{NN}: {Title}
 
 | Field | Value |
 |-------|-------|
 | Candidate / dedup key | C-{NN} / {root-cause\|invariant\|sink} |
-| Target lock SHA-256 | {64-hex digest of `target-lock.md`} |
+| Target lock SHA-256 | {64-hex digest of `target-lock.md`, or NOT RECORDED — optional for internal review} |
 | Target artifact IDs | {T-01,T-03} |
-| Original severity | {engagement or bug-bounty taxonomy label; cite the policy used; never rewrite because of remediation} |
+| Original severity | {engagement or bug-bounty taxonomy label; cite the policy used; Critical/High require an asset-loss consequence; never rewrite because of remediation} |
 | Classification (optional) | {Reentrancy / Oracle / Access Control / …} |
 | Discovery context (optional) | {agent/manual/SAST/fuzz/symbolic/formal/trace/other; optional A.2/B.5/F/G/… mapping} |
 | Metric mapping (optional) | {§1.4 [G-10] / §6.4 / …} |
@@ -145,10 +150,10 @@ Only independently validated, human-accepted candidates appear here. For each fi
 | Evidence verdict | CONFIRMED-DEPLOYED / CONFIRMED-RECONSTRUCTION / CONFIRMED-LOGIC |
 | Evidence confidence | High / Medium / Low — explain |
 | Independent validator | {identity/context + `triage/validation/C-NN.md`} |
-| Human decision | {acceptor, date, rationale} |
+| Human decision | {acceptor, date, rationale — required before this report is issued} |
 | Client response | {exact response or faithful summary + retained source/date, or NOT PROVIDED with date} |
-| Remediation baseline | {for Fixed - Verified: `revision=TYPE:IMMUTABLE_ID; manifest=WORKSPACE_RELATIVE_PATH; sha256=64HEX`; otherwise NOT PROVIDED with reason} |
-| Retest | {for Fixed - Verified: `reviewer=IDENTITY; date=YYYY-MM-DD; method=UNRESTRICTED_DESCRIPTION; evidence=WORKSPACE_RELATIVE_PATH; sha256=64HEX; result=POSITIVE_MECHANISM_OR_PROPERTY_CLOSURE`; otherwise NOT YET RETESTED with reason} |
+| Remediation baseline | {for Fixed - Verified: `revision=TYPE:IMMUTABLE_ID; manifest=WORKSPACE_RELATIVE_PATH[; sha256=64HEX]`; otherwise NOT PROVIDED with reason} |
+| Retest | {for Fixed - Verified: `reviewer=IDENTITY; date=YYYY-MM-DD; method=UNRESTRICTED_DESCRIPTION; evidence=WORKSPACE_RELATIVE_PATH[; sha256=64HEX]; result=POSITIVE_MECHANISM_OR_PROPERTY_CLOSURE`; otherwise NOT YET RETESTED with reason} |
 | Residual risk | {bounded remaining risk, or NO RESIDUAL RISK IDENTIFIED within stated retest scope} |
 | Disclosure handling | {classification/embargo/redaction decision + owner/date, or NOT DECIDED with reason} |
 
@@ -157,6 +162,7 @@ Only independently validated, human-accepted candidates appear here. For each fi
 **Description:** What is the bug? Walk the reader from the entry point to the violation.
 
 **Impact:**
+- Asset loss reached: {yes — extraction / unbacked mint / insolvency / permanent lock, with amount or bound | no — state the non-asset consequence}. Critical/High require a yes; a no caps the finding at Medium.
 - Blast radius: {All funds / capped / single user}
 - Reversibility: {Permanent / pause-recoverable / governance-recoverable}
 - Prerequisites: {Anyone / requires capital / requires privileged role / requires market state}
@@ -164,20 +170,21 @@ Only independently validated, human-accepted candidates appear here. For each fi
 - Detection latency: {Immediate / delayed / silent}
 
 **Evidence and triage verification:**
-- [ ] Target-lock SHA-256 and exact `T-NN` artifact set match the candidate, verification manifest, independent validation, and this finding
-- [ ] Every listed `T-NN` digest verifies, and target identity matches `scope.md`
+- [ ] Exact `T-NN` artifact set (and any recorded lock digest) matches the candidate, verification manifest, independent validation, and this finding
+- [ ] Every listed `T-NN` artifact resolves, target identity matches `scope.md`, and any recorded digest verifies
 - [ ] Chain-native identifier/digest shape passes, and primary artifacts—not
       string consistency alone—prove the deployment/source/state association
 - [ ] Target/revision/build/deployment/configuration identity is bound to the claim
 - [ ] Threat-model-valid actor, capabilities, preconditions, transitions, and effect are established
 - [ ] Verification manifest exists at `triage/reproducers/C-{NN}.md`; method: {PoC/test/fuzz/symbolic/formal/trace/simulation/replay/source proof/other}
-- [ ] Primary artifact or review procedure and SHA-256 are recorded
-- [ ] State fidelity and deviations are recorded — block/slot/object versions/digests, bytecode/package hash, dependencies, or explicit non-deployed scope
+- [ ] Primary artifact resolves in the workspace, or the review procedure is fully recorded (digest optional internally, required for external delivery)
+- [ ] State fidelity and deviations are recorded — block/slot/object versions, deployment ID, dependencies, or explicit non-deployed scope
 - [ ] Impact criterion is established: {net loss/gain / authorization / integrity / liveness / governance / other}
 - [ ] Method-appropriate falsification/control is recorded, including why a negative control is inapplicable if so
 - [ ] Independent validator inspected the primary artifacts and independently challenged the claim, using a rerun/re-review of the documented method, a different sound method, or both, and documented the method and assumptions
-- [ ] Dedup and attacker-cost-versus-impact checks passed
-- [ ] Human acceptance and severity decision recorded
+- [ ] Dedup and attacker-cost-versus-impact checks passed, including the explicit asset-loss answer
+- [ ] Severity calibrated under the asset-loss gate
+- [ ] Human sign-off recorded before this report is issued
 
 **Recommendation:** Concrete fix; preferred approach + alternatives if any.
 
@@ -189,12 +196,12 @@ pointers, not mechanism or loss evidence.
 
 ## Evidence and Independent-Validation Summary
 
-List every accepted security finding and its result. Any current-deployment claim requires deployed-target/state evidence; no particular PoC format is mandatory.
+List every recorded security finding and its result. Any current-deployment claim requires deployed-target/state evidence; no particular PoC format is mandatory.
 
-| Finding / candidate | Evidence method | Artifact or review procedure | Target lock + `T-NN` set + state anchor | Impact criterion / falsification | Independent validator | Human decision | Evidence verdict |
+| Finding / candidate | Evidence method | Artifact or review procedure | Target binding: `T-NN` set (+ lock digest if recorded) + state anchor | Impact criterion / falsification | Independent validator | Human sign-off | Evidence verdict |
 |---------------------|-----------------|------------------------------|-----------------------------------|--------------------------------|-----------------------|----------------|------------------|
-| F-1 / C-1 | {historical trace / replay / formal proof / …} | {path+hash or exact review procedure} | {lock hash; T-01,T-03; deployment + pinned state} | {effect + control/counterexample result} | {validator + evidence} | {acceptor/date} | CONFIRMED-DEPLOYED |
-| F-2 / C-2 | {source proof / unit test / …} | {path+hash or procedure} | {lock hash; T-02; source/package revision; deviations} | {effect + falsification result} | {validator + evidence} | {acceptor/date} | CONFIRMED-LOGIC |
+| F-1 / C-1 | {historical trace / replay / formal proof / …} | {workspace path (+ digest if recorded) or exact review procedure} | {T-01,T-03; deployment + pinned state} | {effect + control/counterexample result} | {validator + evidence} | {acceptor/date} | CONFIRMED-DEPLOYED |
+| F-2 / C-2 | {source proof / unit test / …} | {workspace path or procedure} | {T-02; source/package revision; deviations} | {effect + falsification result} | {validator + evidence} | {acceptor/date} | CONFIRMED-LOGIC |
 
 Verification manifests live under `triage/reproducers/` for compatibility. Executable artifacts may live under `poc/`; proofs, traces, and analyses may live under `evidence/`. Give an exact command or complete review procedure and omit no target/state/dependency fact material to the claim.
 
@@ -210,12 +217,12 @@ These rows reconcile mechanically countable audit artifacts. They do not prescri
 
 | Artifact class | Expected | Reviewed / resolved | Open | Evidence |
 |----------------|----------|---------------------|------|----------|
-| In-scope target artifacts | … | … | … | `target-lock.md` `T-NN` manifest, verified artifact hashes, pinned identity |
+| In-scope target artifacts | … | … | … | `target-lock.md` `T-NN` manifest, resolved artifact paths, pinned identity |
 | Candidates dispositioned | … | … | … | `triage/candidates.md`, per-candidate files |
 | Candidates with verification evidence | … | … | … | `triage/reproducers/`, claim-bound evidence |
 | Independent validations | … | … | … | `triage/validation/` |
 | Material candidate verdicts | … | … | … | candidate closure class, verification, and validation records |
-| Human-accepted findings | … | … | … | `findings.md` |
+| Findings recorded | … | … | … | `findings.md` |
 
 ### Method-Defined Security Coverage
 

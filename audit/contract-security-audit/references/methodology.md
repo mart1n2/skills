@@ -88,24 +88,28 @@ remains uncertain.
 
 ### Axiom 3 — What May Count (the triage contract)
 
-> **An agent is a search tool, not an oracle. A candidate is not a finding until evidence binds its mechanism, reachability, impact, scope, and claimed deployment state; an independent validator challenges it; deduplication and false-positive gates pass; and a human auditor accepts it.**
+> **An agent is a search tool, not an oracle. A candidate is not a finding until evidence binds its mechanism, reachability, impact, scope, and claimed deployment state; an independent validator challenges it; and deduplication and false-positive gates pass. A human auditor then signs it off before any report is issued.**
 
-The acceptance relation is:
+The two relations are:
 
-`findings = human_accept(independently_validate(evidence_bind(candidates)))`.
+`findings = independently_validate(evidence_bind(candidates))`
+`report   = human_signoff(findings)`
 
-Use `triage/candidates.md` and per-candidate files for hypotheses and dispositions;
-reserve `findings.md` for human-accepted findings. The complete lifecycle,
+Proof admits a finding; human judgment releases it. Use `triage/candidates.md` and
+per-candidate files for hypotheses and dispositions; reserve `findings.md` for
+evidence-closed, independently validated findings. The complete lifecycle,
 candidate schema, false-positive gates, multi-step evidence routing, provenance,
 metrics, and validation contract are in `triage.md`, which is mandatory reading.
 Candidate volume is not the product; defensible triage is.
 
 Target truth is carried separately from discovery mechanics. `scope.md` records
 the engagement boundary, while `target-lock.md` records the matching target
-identity and a digest manifest of relied-on `T-NN` artifacts. Every evidence-
-bearing claim names the lock SHA-256 and its exact artifact-ID subset. This
-binding does not privilege or prohibit any discovery, PoC, proof, replay, model,
-or validation method.
+identity and the manifest of relied-on `T-NN` artifacts. Every evidence-bearing
+claim names its exact artifact-ID subset; the lock SHA-256 and per-artifact digests
+are optional integrity fields for internal review, required under
+`triage-check.sh --strict-hashes`, and always verified when recorded. This binding
+does not privilege or prohibit any discovery, PoC, proof, replay, model, or
+validation method.
 
 ### Chain Coverage & How to Read This Document
 
@@ -132,10 +136,10 @@ Metrics tell you *what patterns are known to be dangerous*. Methodologies tell y
 | **Build the model** | Pre-passes | C. Invariants · D. State Machines · E. Trust Boundaries |
 | **Stress-test the model** | Execution | A. Bypass · B. Boundary Cases |
 | **Extend the lens** | Cross-passes | F. Negative Space · G. Differential · H. Failure-Mode Catalog · X. Cross-Boundary Logic · J. Business-Logic & Economic-Design |
-| **Accept output** | Triage gate | Evidence binding · scope/reachability/impact/falsification/provenance/dedup/cost-impact gates · independent validation · human acceptance |
-| **Output** | Post-pass | I. Severity Calibration |
+| **Accept output** | Triage gate | Evidence binding · scope/reachability/impact/falsification/provenance/dedup/cost-impact gates · independent validation |
+| **Output** | Post-pass | I. Severity Calibration · human sign-off before reporting |
 
-P is one way to produce reviewable closure over fund-effect chains. Grep seeds are a lower bound; any method used must state its coverage and residual blind spots. C/D/E build the mental model. A/B/F/G/H/X/J are attack lenses that may be applied to P or to leads produced by any other method. The triage gate decides what is credible; I calibrates severity for accepted candidates.
+P is one way to produce reviewable closure over fund-effect chains. Grep seeds are a lower bound; any method used must state its coverage and residual blind spots. C/D/E build the mental model. A/B/F/G/H/X/J are attack lenses that may be applied to P or to leads produced by any other method. The triage gate decides what is credible; I calibrates severity for validated candidates.
 
 > **The composition axis.** Some high-impact bugs live *between* units — two
 > functions each correct alone, two contracts each consistent alone, an
@@ -365,7 +369,7 @@ Set difference per sink: `reachable_set(S-NN) \ intended_set(S-NN)` = candidate 
 
 **Output:** `audit-workspace/{protocol}/atlas/intent.md` and `audit-workspace/{protocol}/atlas/delta.md`.
 
-When this scaffold is used, the delta is one structural search deliverable. The complete candidate set may also include unsafe intended flows and leads from any other method; only independently validated, human-accepted candidates form the finding set.
+When this scaffold is used, the delta is one structural search deliverable. The complete candidate set may also include unsafe intended flows and leads from any other method; only independently validated candidates form the finding set.
 
 ### P.6 Atlas Discipline
 
@@ -913,7 +917,7 @@ Checklist:
 
 *Validation:* Conic Finance ($3.2M, Curve `get_virtual_price` read-only reentrancy); Sentiment ($1M, Balancer read-only reentrancy); CREAM/UwU/Cheese (oracle/`get_virtual_price` manipulation); the recurring "integrated a fork with different fee/decimal semantics" class; vault-of-vaults that use an idealized sub-vault conversion as realizable liquidity without respecting executable limits.
 
-**Optional output scaffold:** append to the candidate registry a seam table: `(boundary type or other classification, unit-A, unit-B, the assumption A makes about B, the path that violates it, effect reached)`. Every material row receives claim-bound evidence and independent triage; only human-accepted rows enter `findings.md`.
+**Optional output scaffold:** append to the candidate registry a seam table: `(boundary type or other classification, unit-A, unit-B, the assumption A makes about B, the path that violates it, effect reached)`. Every material row receives claim-bound evidence and independent triage; only independently validated rows enter `findings.md`.
 
 ---
 
@@ -1185,7 +1189,10 @@ An executable PoC should assert a consequence such as:
 
 Other consequences—authorization loss, governance capture, privacy breach,
 consensus/network impact, or invariant corruption—need their own measurable
-criterion. The taxonomy is not funds-only.
+criterion and are reportable findings. Note the asymmetry: they are in scope for
+the audit, but only an asset-loss consequence makes a finding eligible for
+Critical/High (`§ I`). When such a consequence *does* reach funds, assert the
+fund effect too, not just the state change.
 
 ### Evidence verdicts
 
@@ -1206,21 +1213,25 @@ Never lower severity solely because verification was blocked. Lower it only when
 Before promotion, apply the full contract in `triage.md`. The method is open; the
 claim obligations are not:
 
-1. bind the evidence to the scoped target and state claimed through the current
-   `target-lock.md` SHA-256 and exact claim-specific `T-NN` artifact set; verify
-   that lock identity matches `scope.md`;
+1. bind the evidence to the scoped target and state claimed through the
+   `target-lock.md` identity and exact claim-specific `T-NN` artifact set; verify
+   that lock identity matches `scope.md` (digests optional, verified if recorded);
 2. establish the attacker entry, preconditions, transitions, and effect;
 3. challenge the impact criterion with a meaningful control, counterexample
    search, or proof-obligation review;
-4. pin source, state, dependencies, toolchain, commands or review procedure,
-   provenance, and artifact hashes;
+4. pin source, state, dependencies, toolchain, commands or review procedure, and
+   provenance, and retain every referenced artifact in the workspace;
 5. deduplicate by root cause, violated invariant, and sink against known,
    rejected, fixed, and prior issues;
-6. compare attacker prerequisites/cost with user, protocol, or network impact;
+6. compare attacker prerequisites/cost with user, protocol, or network impact, and
+   state explicitly whether the claim reaches loss of funds or assets;
 7. have a validator other than the producer inspect the primary artifacts and
    independently challenge the claim; the validator may rerun or re-review the
-   documented method, use a different sound method, or do both;
-8. have a human auditor accept the finding and severity.
+   documented method, use a different sound method, or do both.
+
+Gates 1–7 admit the finding to `findings.md`. Before any report is issued, a human
+auditor signs the finding, its severity, and its disclosure decision — the report
+gate, not the truth gate.
 
 Sequence-shaped candidates must preserve the complete transitions and state
 dependencies using a suitable method, such as a stateful harness, trace,
@@ -1235,6 +1246,26 @@ inconclusive candidates remain report limitations.
 
 Severity = **Impact × Likelihood**, with prerequisite cost as a divisor. Evidence confidence does not mathematically reduce severity; report it as a separate field so an unverified High does not become a false Low.
 
+**The asset-loss gate.** Critical and High are reserved for **loss of funds or
+assets**. Before assigning either, answer one question and record the answer in the
+finding's cost-versus-impact field: *does this claim reach extraction, unbacked
+mint, insolvency, or permanent lock of user/protocol assets?* If it does not, the
+finding caps at Medium no matter how novel the mechanism or how elegant the chain.
+
+- Asset loss includes value extracted from users or the protocol, unbacked
+  mint/inflation, bad debt or insolvency, mis-priced redemption that drains a pool,
+  and **permanent** freeze of assets — unrecoverable access is loss.
+- Privileged-role and governance issues count as asset loss only when the abused
+  authority actually reaches funds (upgrade → drain, mint, fee/oracle parameter →
+  extraction). Trace that path; do not assume it.
+- Non-asset consequences — authorization/integrity violations with no value at
+  stake, temporary liveness loss, griefing without extraction, accounting drift
+  that no one can monetize — are real findings, reported at Medium or below, and
+  escalate only when evidence connects them to asset loss.
+- Then choose between Critical and High by magnitude, reversibility, and
+  prerequisites using the axes below. Asset loss makes a finding eligible for
+  Critical/High; it does not by itself make it Critical.
+
 | Axis | Levels | Notes |
 |------|--------|-------|
 | **Blast radius** | All funds / single user / capped amount | Sets cap on $ at risk |
@@ -1243,18 +1274,20 @@ Severity = **Impact × Likelihood**, with prerequisite cost as a divisor. Eviden
 | **Mempool visibility** | Front-runnable / private | Affects exploitation race |
 | **Detection latency** | Immediate (event) / delayed (off-chain monitor) / silent | Affects response window |
 
-**Tiers (calibrate from impact and prerequisites; these are examples, not a funds-only taxonomy):**
+**Tiers (calibrate from impact and prerequisites; these are examples, and the engagement's own taxonomy takes precedence when one is supplied):**
 
-- **Critical** — permissionless or realistically attainable path to arbitrary/near-total fund loss, unbounded mint/insolvency, protocol-wide permanent freeze, or governance/admin takeover with immediate system-wide control; typically irreversible and requiring no trusted-role compromise.
-- **High** — material but bounded/recoverable fund loss, repeatable market-state extraction, broad integrity failure, or protocol-wide liveness loss with feasible prerequisites.
-- **Medium** — limited/single-user loss, temporary or narrowly scoped liveness/integrity impact, or an escalation that requires substantial prerequisites. Merely assuming an already-trusted role is compromised is a threat-model dependency, not automatically a vulnerability.
+- **Critical** — permissionless or realistically attainable path to arbitrary/near-total asset loss: unbounded mint, insolvency, drain of pooled funds, permanent protocol-wide freeze of assets, or an admin/governance takeover that immediately reaches those funds; typically irreversible and requiring no trusted-role compromise.
+- **High** — material but bounded or recoverable asset loss: repeatable market-state extraction, a capped drain, loss confined to one asset/market, or a fund-reaching path with feasible but non-trivial prerequisites.
+- **Medium** — no demonstrated asset-loss path, or loss so small/conditional that it is not material: authorization or integrity violation without value at stake, temporary liveness/freeze, griefing without extraction, dust-level or single-user bounded loss behind substantial prerequisites. Merely assuming an already-trusted role is compromised is a threat-model dependency, not automatically a vulnerability.
 - **Low** — minor operational or correctness impact with no material fund, control, integrity, or sustained-liveness consequence.
-- **Informational** — a human-accepted security-relevant correctness or
-  defense-in-depth item without a demonstrated exploitable consequence. Pure
-  gas, style, or documentation notes remain observations unless the engagement's
-  explicit taxonomy requires reporting them as findings.
+- **Informational** — a security-relevant correctness or defense-in-depth item
+  without a demonstrated exploitable consequence. Pure gas, style, or
+  documentation notes remain observations unless the engagement's explicit
+  taxonomy requires reporting them as findings.
 
-Critical findings block deployment; High requires sign-off; Medium tracked.
+Critical findings block deployment; High requires sign-off; Medium tracked. If the
+engagement or bug-bounty program supplies a different taxonomy, follow it, state
+the policy, and keep the asset-loss answer visible either way.
 
 ---
 
@@ -1268,9 +1301,9 @@ accepted claim, and report residual gaps.
 
 ```
 0. Pin scope and target identity.             [Context + target-lock.md]
-   Reconcile scope.md with target-lock.md, hash each relied-on target artifact,
-   assign T-NN IDs, and record the completed target-lock SHA-256. Read docs,
-   whitepaper, and prior audits as useful context.
+   Reconcile scope.md with target-lock.md, list each relied-on target artifact
+   with a T-NN ID and path, and add digests if the engagement needs integrity
+   binding. Read docs, whitepaper, and prior audits as useful context.
 1. Optionally record target-model artifacts (or link equivalents):
    O.1 One-paragraph protocol summary           [your own words]
    O.2 Value-flow diagram                       [tokens & edges]
@@ -1301,8 +1334,8 @@ accepted claim, and report residual gaps.
    X. Cross-boundary logic — function/contract/protocol seams. [Cross-pass]
    J. Business-logic & economic-design.         [Cross-pass]
 7. Bind evidence to each claim:
-   - Record the current target-lock SHA-256 and exact T-NN artifact subset in the
-     candidate, verification manifest, validation, and accepted finding.
+   - Record the exact T-NN artifact subset (and any digest the engagement requires)
+     in the candidate, verification manifest, validation, and recorded finding.
      Revalidate affected claims whenever the lock identity or an artifact changes.
    - Use any sound verification method: PoC, test, fuzz counterexample, invariant
      violation, trace/transaction analysis, simulation/replay, symbolic/formal
@@ -1319,9 +1352,10 @@ accepted claim, and report residual gaps.
      independently challenges the claim. They may rerun or re-review the
      documented method, use a different sound method, or do both, then record
      the method and disposition.
-   - A human auditor makes the final acceptance decision; only accepted candidates enter findings.md.
+   - Independently validated candidates enter findings.md on their evidence; a
+     human auditor signs each one off before any report is issued.
 9. Calibrate and cross-reference:
-   I. Calibrate code-impact severity, deployment exposure, and evidence confidence separately for accepted candidates.
+   I. Calibrate code-impact severity, deployment exposure, and evidence confidence separately for validated candidates; apply the asset-loss gate before Critical/High.
    Cross-reference chain-specific metrics (metrics-evm.md, metrics-solana.md, metrics-sui.md).
    - Pattern match → historical precedent and an optional verification shape
    - No pattern match → potentially novel class; interrogate harder, promote to catalog after
@@ -1346,7 +1380,9 @@ accepted claim, and report residual gaps.
 - Is any material cross-function, cross-contract, or dependency seam outside the selected coverage? (If yes → extend coverage or report the gap.)
 - Is any material economic assumption outside the selected coverage? (If yes → extend coverage or report the gap.)
 - Is any candidate missing a disposition, dedup result, or provenance? (If yes → finish triage.)
-- Is any accepted candidate missing claim-bound evidence, method-appropriate falsification, independent validation, or a human decision? (If yes → it is not a finding.)
+- Is any recorded finding missing claim-bound evidence, method-appropriate falsification, or independent validation? (If yes → it is not a finding.)
+- Is any Critical/High severity assigned without a stated asset-loss consequence, or any asset-loss finding capped below it? (If yes → recalibrate under § I.)
+- Is a report about to be issued while any recorded finding lacks human sign-off? (If yes → sign off or hold the report.)
 - Is any `MATERIAL` candidate missing an evidence verdict, or mislabeled as rejected due only to a blocked verification method? (If yes → finish verification or report `INCONCLUSIVE`.)
 
 Only when every answer is "no" and `coverage.md` contains no unreported material gap may the audit be called complete. The discipline above is not a substitute for being a red-teamer; it keeps a red-teamer from missing the obvious chain while chasing the clever one.

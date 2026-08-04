@@ -1,15 +1,35 @@
 #!/usr/bin/env bash
 # Validate the contract-security-audit triage contract.
 # Portable across Apple Bash 3.2 and Linux Bash; invoke explicitly with bash.
+#
+# Gates:
+#   (default)        findings gate — evidence, independent validation, closure.
+#                    Integrity digests are optional; a recorded digest must match.
+#   --report         report gate — additionally require human sign-off on every
+#                    recorded finding. Run before issuing any report.
+#   --strict-hashes  additionally require every integrity digest (target lock,
+#                    target artifacts, evidence, remediation/retest). Use for
+#                    client/public delivery, moving baselines, shared workspaces.
+#   --bootstrap      structure-only check of a newly initialized workspace.
 
 set -euo pipefail
 
 MODE="final"
-if [ "${1:-}" = "--bootstrap" ]; then
-    MODE="bootstrap"
-    shift
-fi
-WORKSPACE="${1:?Usage: triage-check.sh [--bootstrap] <audit-workspace/protocol>}"
+REQUIRE_SIGNOFF=0
+STRICT_HASHES=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --bootstrap) MODE="bootstrap"; shift ;;
+        --report) REQUIRE_SIGNOFF=1; shift ;;
+        --strict-hashes) STRICT_HASHES=1; shift ;;
+        --) shift; break ;;
+        -*) printf 'ERROR: unknown option %s\n' "$1" >&2
+            printf 'Usage: triage-check.sh [--bootstrap] [--report] [--strict-hashes] <audit-workspace/protocol>\n' >&2
+            exit 2 ;;
+        *) break ;;
+    esac
+done
+WORKSPACE="${1:?Usage: triage-check.sh [--bootstrap] [--report] [--strict-hashes] <audit-workspace/protocol>}"
 
 failures=0
 TMP_CHECK="$(mktemp -d "${TMPDIR:-/tmp}/contract-audit-triage.XXXXXX")"
@@ -152,6 +172,57 @@ sha256_file() {
     fi
 }
 
+is_sha256_value() {
+    printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' | grep -Eq '^[0-9a-f]{64}$'
+}
+
+# Integrity-only provenance fields are optional for internal review and required
+# under --strict-hashes. Their internal shape is free-form (one record may carry
+# several artifact digests), so only presence is checked here.
+require_field_when_strict_hashes() {
+    hash_file="$1"
+    hash_field="$2"
+    hash_count="$(awk -v prefix="- $hash_field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$hash_file")"
+    if [ "$hash_count" -gt 1 ]; then
+        fail "$hash_file: field '$hash_field' must appear at most once (found $hash_count)"
+        return
+    fi
+    if [ "$STRICT_HASHES" -eq 1 ]; then
+        require_substantive_field "$hash_file" "$hash_field"
+    fi
+}
+
+# A recorded target-lock digest binds the claim to one lock snapshot. Absent, the
+# claim still binds through target identity and its T-NN artifact set.
+check_lock_binding_value() {
+    lock_context="$1"
+    lock_value="$2"
+    if is_unset "$lock_value" || is_non_substantive "$lock_value"; then
+        if [ "$STRICT_HASHES" -eq 1 ]; then
+            fail "$lock_context: --strict-hashes requires the target-lock SHA-256"
+        fi
+        return
+    fi
+    if ! is_sha256_value "$lock_value"; then
+        fail "$lock_context: target lock SHA-256 must be a 64-hex digest or an explicit N/A"
+        return
+    fi
+    if [ "$(printf '%s\n' "$lock_value" | tr '[:upper:]' '[:lower:]')" != "$TARGET_LOCK_SHA256" ]; then
+        fail "$lock_context: target lock SHA-256 does not match the current target-lock.md"
+    fi
+}
+
+check_lock_binding() {
+    lock_file="$1"
+    lock_field="$2"
+    lock_count="$(awk -v prefix="- $lock_field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$lock_file")"
+    if [ "$lock_count" -gt 1 ]; then
+        fail "$lock_file: field '$lock_field' must appear at most once (found $lock_count)"
+        return
+    fi
+    check_lock_binding_value "$lock_file" "$(field_value "$lock_file" "$lock_field")"
+}
+
 validate_target_id_value() {
     target_list_context="$1"
     target_list_value="$2"
@@ -185,29 +256,39 @@ validate_deployed_identity_format() {
     deployed_ids="$2"
     deployed_hash="$3"
 
+    # The deployment identifier is identity and always required for a deployed
+    # claim. Its code/package digest is integrity bookkeeping: shape-checked when
+    # recorded, required only under --strict-hashes.
+    if is_unset "$deployed_hash" || is_non_substantive "$deployed_hash"; then
+        deployed_hash=""
+    fi
+
     case "$deployed_chain" in
         solana)
             if ! printf '%s\n' "$deployed_ids" | grep -Eq '(^|[^1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{32,44}([^1-9A-HJ-NP-Za-km-z]|$)'; then
                 fail "$WORKSPACE/target-lock.md: CONFIRMED-DEPLOYED Solana identity requires a base58 program ID"
             fi
-            if ! printf '%s\n' "$deployed_hash" | grep -Eq '(^|[^[:alnum:]])((0x)?[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{32,64})([^[:alnum:]]|$)'; then
-                fail "$WORKSPACE/target-lock.md: CONFIRMED-DEPLOYED Solana identity requires a structured deployed binary/package digest"
+            if [ -n "$deployed_hash" ] && \
+               ! printf '%s\n' "$deployed_hash" | grep -Eq '(^|[^[:alnum:]])((0x)?[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{32,64})([^[:alnum:]]|$)'; then
+                fail "$WORKSPACE/target-lock.md: recorded Solana deployed binary/package digest is not structured"
             fi
             ;;
         sui)
             if ! printf '%s\n' "$deployed_ids" | grep -Eq '(^|[^[:xdigit:]])0x[0-9a-fA-F]{1,64}([^[:xdigit:]]|$)'; then
                 fail "$WORKSPACE/target-lock.md: CONFIRMED-DEPLOYED Sui identity requires a hexadecimal package ID"
             fi
-            if ! printf '%s\n' "$deployed_hash" | grep -Eq '(^|[^[:alnum:]])((0x)?[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{32,64})([^[:alnum:]]|$)'; then
-                fail "$WORKSPACE/target-lock.md: CONFIRMED-DEPLOYED Sui identity requires a structured package/object digest"
+            if [ -n "$deployed_hash" ] && \
+               ! printf '%s\n' "$deployed_hash" | grep -Eq '(^|[^[:alnum:]])((0x)?[0-9a-fA-F]{64}|[1-9A-HJ-NP-Za-km-z]{32,64})([^[:alnum:]]|$)'; then
+                fail "$WORKSPACE/target-lock.md: recorded Sui package/object digest is not structured"
             fi
             ;;
         *)
             if ! printf '%s\n' "$deployed_ids" | grep -Eq '(^|[^[:xdigit:]])0x[0-9a-fA-F]{40}([^[:xdigit:]]|$)'; then
                 fail "$WORKSPACE/target-lock.md: CONFIRMED-DEPLOYED EVM identity requires a 20-byte deployment address"
             fi
-            if ! printf '%s\n' "$deployed_hash" | grep -Eq '(^|[^[:xdigit:]])0x[0-9a-fA-F]{64}([^[:xdigit:]]|$)'; then
-                fail "$WORKSPACE/target-lock.md: CONFIRMED-DEPLOYED EVM identity requires a 32-byte deployed code hash"
+            if [ -n "$deployed_hash" ] && \
+               ! printf '%s\n' "$deployed_hash" | grep -Eq '(^|[^[:xdigit:]])0x[0-9a-fA-F]{64}([^[:xdigit:]]|$)'; then
+                fail "$WORKSPACE/target-lock.md: recorded EVM deployed code hash is not a 32-byte hash"
             fi
             ;;
     esac
@@ -255,13 +336,16 @@ verify_workspace_artifact() {
     relative_path="$(field_value "$manifest" "$path_field")"
     expected_hash="$(field_value "$manifest" "$hash_field" | tr '[:upper:]' '[:lower:]')"
 
-    if is_unset "$relative_path" || is_unset "$expected_hash"; then
+    if is_unset "$relative_path" || is_non_substantive "$relative_path"; then
         return
     fi
     verify_workspace_artifact_values \
         "$manifest" "$path_field" "$hash_field" "$relative_path" "$expected_hash"
 }
 
+# The proof artifact itself is never optional: it must resolve to a retained,
+# non-empty, symlink-free file inside the workspace. Its digest is optional for
+# internal review; a recorded digest is always verified.
 verify_workspace_artifact_values() {
     artifact_context="$1"
     path_label="$2"
@@ -286,6 +370,17 @@ verify_workspace_artifact_values() {
 
     if [ ! -s "$artifact" ]; then
         fail "$artifact_context: '$path_label' does not resolve to a non-empty file: $artifact"
+        return
+    fi
+
+    if is_unset "$expected_hash" || is_non_substantive "$expected_hash"; then
+        if [ "$STRICT_HASHES" -eq 1 ]; then
+            fail "$artifact_context: --strict-hashes requires '$hash_label'"
+        fi
+        return
+    fi
+    if ! is_sha256_value "$expected_hash"; then
+        fail "$artifact_context: '$hash_label' must be a 64-hex SHA-256 or an explicit N/A"
         return
     fi
     actual_hash="$(sha256_file "$artifact" || true)"
@@ -480,6 +575,9 @@ if [ "$MODE" = "final" ]; then
             sub(/[ \t]+$/, "", value)
             return value
         }
+        function nz(value) {
+            return (value == "") ? "NONE" : value
+        }
         /^##[[:space:]]+Target Artifact Manifest[[:space:]]*$/ { in_targets = 1; next }
         in_targets && /^##[[:space:]]/ { in_targets = 0 }
         in_targets && /^\|/ {
@@ -493,7 +591,7 @@ if [ "$MODE" = "final" ]; then
             digest = trim($4)
             role = trim($5)
             if (id == "" || id == "Target ID" || id ~ /^-+$/) next
-            print id "\t" path "\t" digest "\t" role
+            print id "\t" nz(path) "\t" nz(digest) "\t" nz(role)
             rows++
         }
         END {
@@ -552,8 +650,14 @@ if [ "$MODE" = "final" ]; then
             continue
         fi
         normalized_target_hash="$(printf '%s\n' "$target_hash" | tr '[:upper:]' '[:lower:]')"
-        if ! printf '%s\n' "$normalized_target_hash" | grep -Eq '^[0-9a-f]{64}$'; then
-            fail "$WORKSPACE/target-lock.md: $target_id requires an exact SHA-256 digest"
+        if is_unset "$target_hash" || is_non_substantive "$target_hash" || [ "$target_hash" = "-" ]; then
+            # Digests are optional integrity bookkeeping for internal review; the
+            # binding is the T-NN identity plus the resolved workspace path above.
+            if [ "$STRICT_HASHES" -eq 1 ]; then
+                fail "$WORKSPACE/target-lock.md: --strict-hashes requires a SHA-256 digest for $target_id"
+            fi
+        elif ! is_sha256_value "$normalized_target_hash"; then
+            fail "$WORKSPACE/target-lock.md: $target_id digest must be a 64-hex SHA-256 or an explicit N/A"
         else
             actual_target_hash="$(sha256_file "$WORKSPACE/$target_path" || true)"
             if [ "$actual_target_hash" != "$normalized_target_hash" ]; then
@@ -611,7 +715,10 @@ if [ "$MODE" = "final" ]; then
             require_surface("Candidates with verification evidence")
             require_surface("Independent validations")
             require_surface("Material candidate verdicts")
-            require_surface("Human-accepted findings")
+            # Findings are admitted on evidence, so the canonical row is
+            # "Findings recorded". The pre-sign-off-gate name stays valid.
+            findings_surfaces["Findings recorded"] = 1
+            findings_surfaces["Human-accepted findings"] = 1
         }
         /^##[[:space:]]+Objective Artifact Reconciliation[[:space:]]*$/ { in_coverage = 1; next }
         in_coverage && /^##[[:space:]]/ { in_coverage = 0 }
@@ -646,7 +753,10 @@ if [ "$MODE" = "final" ]; then
             if (surface == "Candidates with verification evidence") reconcile(surface, actual_verification)
             if (surface == "Independent validations") reconcile(surface, actual_validations)
             if (surface == "Material candidate verdicts") reconcile(surface, actual_material_candidates)
-            if (surface == "Human-accepted findings") reconcile(surface, actual_findings)
+            if (surface in findings_surfaces) {
+                findings_rows++
+                reconcile(surface, actual_findings)
+            }
         }
         END {
             if (rows == 0) {
@@ -658,6 +768,10 @@ if [ "$MODE" = "final" ]; then
                     printf "required coverage surface missing: %s\n", surface > "/dev/stderr"
                     errors++
                 }
+            }
+            if (findings_rows != 1) {
+                printf "coverage requires exactly one findings row named \"Findings recorded\" (found %d)\n", findings_rows > "/dev/stderr"
+                errors++
             }
             if (errors) exit 1
         }
@@ -747,7 +861,7 @@ if grep -Eq '^- Severity:[[:space:]]*' "$WORKSPACE/findings.md"; then
     fail "$WORKSPACE/findings.md uses the legacy '- Severity:' field; migrate each accepted finding to '- Original severity:' and add the retained reporting fields documented in SKILL.md"
 fi
 
-if ! awk '
+if ! awk -v require_signoff="$REQUIRE_SIGNOFF" -v strict_hashes="$STRICT_HASHES" '
     function trim(value) {
         sub(/^[ \t]+/, "", value)
         sub(/[ \t]+$/, "", value)
@@ -759,16 +873,6 @@ if ! awk '
                lower ~ /^(tbd|unknown)([[:space:]:-]|$)/ ||
                lower ~ /^(n\/a|none)([[:space:]:-]|$)/ ||
                lower ~ /<[^>]*>/
-    }
-    function has_hex_identifier(value, required_length,   parts, count, i) {
-        count = split(value, parts, /[^0-9A-Fa-f]+/)
-        for (i = 1; i <= count; i++) {
-            if (length(parts[i]) == required_length) return 1
-        }
-        return 0
-    }
-    function has_immutable_revision(value) {
-        return has_hex_identifier(value, 40) || has_hex_identifier(value, 64)
     }
     function has_iso_date(value) {
         return value ~ /(^|[^0-9])[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]([^0-9]|$)/
@@ -782,7 +886,11 @@ if ! awk '
     }
     function finish_section(   required, count, i, field) {
         if (!in_finding) return
-        required = "Candidate ID / dedup key;Target lock SHA-256;Target artifact IDs;Target locator;Reachability chain / evidence;Mechanism;Invariant violated;Original severity;Current remediation status;Current deployment;Deployment/state anchor;Evidence verdict;Verification evidence;Independent validation;Cost versus impact;Human decision;Client response;Remediation baseline;Retest;Residual risk;Disclosure handling"
+        required = "Candidate ID / dedup key;Target artifact IDs;Target locator;Reachability chain / evidence;Mechanism;Invariant violated;Original severity;Current remediation status;Current deployment;Deployment/state anchor;Evidence verdict;Verification evidence;Independent validation;Cost versus impact;Client response;Remediation baseline;Retest;Residual risk;Disclosure handling"
+        # Integrity digest: bookkeeping, required only under --strict-hashes.
+        if (strict_hashes) required = required ";Target lock SHA-256"
+        # Human sign-off: report gate, required only under --report.
+        if (require_signoff) required = required ";Human decision"
         count = split(required, required_fields, ";")
         for (i = 1; i <= count; i++) {
             field = required_fields[i]
@@ -821,20 +929,15 @@ if ! awk '
             if (remediation_baseline_lower ~ /^(not provided|not assessed|unknown|not applicable)([[:space:]:-]|$)/) {
                 printf "finding section %s is Fixed - Verified without an exact Remediation baseline\n", heading > "/dev/stderr"
                 errors++
-            } else if (!has_immutable_revision(remediation_baseline)) {
-                printf "finding section %s is Fixed - Verified without a full 40/64-hex remediation revision or retained baseline-manifest SHA-256\n", heading > "/dev/stderr"
-                errors++
             }
+            # The revision descriptor and retained manifest are validated
+            # structurally below; the manifest digest is optional bookkeeping.
             if (retest_lower ~ /^(not yet retested|not assessed|unknown|not applicable)([[:space:]:-]|$)/) {
                 printf "finding section %s is Fixed - Verified without substantive Retest evidence/result\n", heading > "/dev/stderr"
                 errors++
             } else {
                 if (!has_iso_date(retest)) {
                     printf "finding section %s is Fixed - Verified without a YYYY-MM-DD retest date\n", heading > "/dev/stderr"
-                    errors++
-                }
-                if (!has_hex_identifier(retest, 64)) {
-                    printf "finding section %s is Fixed - Verified without a retained retest-evidence SHA-256\n", heading > "/dev/stderr"
                     errors++
                 }
                 if (!states_positive_closure(retest)) {
@@ -940,9 +1043,12 @@ awk '
         sub(/^[ \t]*/, "", value)
         return value
     }
+    function nz(value) {
+        return (trim(value) == "") ? "NONE" : value
+    }
     function finish() {
         if (in_finding && status == "Fixed - Verified") {
-            print finding_id "\t" baseline "\t" retest
+            print nz(finding_id) "\t" nz(baseline) "\t" nz(retest)
         }
     }
     /^##[[:space:]]+F-[0-9]+([[:space:]]+.*)?$/ {
@@ -975,20 +1081,17 @@ while IFS="$(printf '\t')" read -r fixed_id fixed_baseline fixed_retest; do
     baseline_revision="$(structured_field_value "$fixed_baseline" "revision")"
     baseline_manifest="$(structured_field_value "$fixed_baseline" "manifest")"
     baseline_manifest_hash="$(structured_field_value "$fixed_baseline" "sha256")"
-    if is_unset "$baseline_revision" || is_unset "$baseline_manifest" || \
-       is_unset "$baseline_manifest_hash"; then
-        fail "$WORKSPACE/findings.md: $fixed_id Fixed - Verified remediation baseline must use revision=...; manifest=...; sha256=..."
+    if is_unset "$baseline_revision" || is_unset "$baseline_manifest"; then
+        fail "$WORKSPACE/findings.md: $fixed_id Fixed - Verified remediation baseline must use revision=...; manifest=... (sha256=... optional unless --strict-hashes)"
     else
         if ! is_valid_revision_descriptor "$baseline_revision"; then
             fail "$WORKSPACE/findings.md: $fixed_id remediation revision must use a supported type:immutable-id descriptor"
         fi
-        if ! printf '%s\n' "$baseline_manifest_hash" | grep -Eq '^[0-9a-fA-F]{64}$'; then
-            fail "$WORKSPACE/findings.md: $fixed_id remediation manifest SHA-256 must be exactly 64 hex characters"
-        else
-            verify_workspace_artifact_values "$WORKSPACE/findings.md: $fixed_id" \
-                "remediation manifest" "remediation manifest SHA-256" \
-                "$baseline_manifest" "$baseline_manifest_hash"
-        fi
+        # The retained manifest must resolve; its digest is optional bookkeeping
+        # and verified whenever recorded.
+        verify_workspace_artifact_values "$WORKSPACE/findings.md: $fixed_id" \
+            "remediation manifest" "remediation manifest SHA-256" \
+            "$baseline_manifest" "$baseline_manifest_hash"
         case "$baseline_manifest" in
             /*|../*|*/../*) ;;
             *)
@@ -1009,19 +1112,15 @@ while IFS="$(printf '\t')" read -r fixed_id fixed_baseline fixed_retest; do
     retest_result="$(structured_field_value "$fixed_retest" "result")"
     if is_unset "$retest_reviewer" || is_unset "$retest_date" || \
        is_unset "$retest_method" || is_unset "$retest_evidence" || \
-       is_unset "$retest_hash" || is_unset "$retest_result"; then
-        fail "$WORKSPACE/findings.md: $fixed_id Fixed - Verified retest must use reviewer=...; date=...; method=...; evidence=...; sha256=...; result=..."
+       is_unset "$retest_result"; then
+        fail "$WORKSPACE/findings.md: $fixed_id Fixed - Verified retest must use reviewer=...; date=...; method=...; evidence=...; result=... (sha256=... optional unless --strict-hashes)"
     else
         if ! is_valid_iso_date "$retest_date"; then
             fail "$WORKSPACE/findings.md: $fixed_id retest date is not a real YYYY-MM-DD calendar date"
         fi
-        if ! printf '%s\n' "$retest_hash" | grep -Eq '^[0-9a-fA-F]{64}$'; then
-            fail "$WORKSPACE/findings.md: $fixed_id retest evidence SHA-256 must be exactly 64 hex characters"
-        else
-            verify_workspace_artifact_values "$WORKSPACE/findings.md: $fixed_id" \
-                "retest evidence" "retest evidence SHA-256" \
-                "$retest_evidence" "$retest_hash"
-        fi
+        verify_workspace_artifact_values "$WORKSPACE/findings.md: $fixed_id" \
+            "retest evidence" "retest evidence SHA-256" \
+            "$retest_evidence" "$retest_hash"
         if ! printf '%s\n' "$retest_result" | grep -Eqi \
             '(original mechanism closed|violated property holds|security property holds|proof obligation satisfied|exploit preconditions closed|vulnerable state transition unreachable)'; then
             fail "$WORKSPACE/findings.md: $fixed_id retest result does not state positive mechanism/property closure"
@@ -1041,9 +1140,14 @@ awk '
         sub(/^[ \t]*/, "", value)
         return value
     }
+    # Tab is IFS whitespace, so an empty column would collapse and silently
+    # shift every later field. Optional fields emit an explicit absent marker.
+    function nz(value) {
+        return (trim(value) == "") ? "NONE" : value
+    }
     function finish_section() {
         if (!in_finding) return
-        print finding_id "\t" candidate "\t" dedup "\t" reproducer "\t" validation "\t" human "\t" current "\t" verdict "\t" target_lock "\t" target_ids
+        print nz(finding_id) "\t" nz(candidate) "\t" nz(dedup) "\t" nz(reproducer) "\t" nz(validation) "\t" nz(human) "\t" nz(current) "\t" nz(verdict) "\t" nz(target_lock) "\t" nz(target_ids)
     }
     /^##[[:space:]]+F-[0-9]+([[:space:]]+.*)?$/ {
         finish_section()
@@ -1093,18 +1197,24 @@ while IFS="$(printf '\t')" read -r finding_id finding_candidate finding_dedup fi
         continue
     fi
     finding_candidate_status="$(field_value "$finding_candidate_file" "Status")"
-    if [ "$finding_candidate_status" != "HUMAN-ACCEPTED" ]; then
-        fail "$WORKSPACE/findings.md: linked candidate $finding_candidate has status '$finding_candidate_status', not HUMAN-ACCEPTED"
+    # Proof admits a finding: INDEPENDENTLY-VALIDATED is enough to be recorded.
+    # HUMAN-ACCEPTED is the report gate and is required under --report.
+    if [ "$REQUIRE_SIGNOFF" -eq 1 ]; then
+        if [ "$finding_candidate_status" != "HUMAN-ACCEPTED" ]; then
+            fail "$WORKSPACE/findings.md: --report requires linked candidate $finding_candidate to be HUMAN-ACCEPTED, not '$finding_candidate_status'"
+        fi
+    else
+        case "$finding_candidate_status" in
+            INDEPENDENTLY-VALIDATED|HUMAN-ACCEPTED) ;;
+            *) fail "$WORKSPACE/findings.md: linked candidate $finding_candidate has status '$finding_candidate_status', not INDEPENDENTLY-VALIDATED or HUMAN-ACCEPTED" ;;
+        esac
     fi
     candidate_dedup="$(field_value "$finding_candidate_file" "Dedup key")"
     if [ "$finding_dedup" != "$candidate_dedup" ]; then
         fail "$WORKSPACE/findings.md: $finding_candidate dedup key '$finding_dedup' does not match candidate key '$candidate_dedup'"
     fi
     if [ "$MODE" = "final" ]; then
-        normalized_finding_target_lock_hash="$(printf '%s\n' "$finding_target_lock_hash" | tr '[:upper:]' '[:lower:]')"
-        if [ "$normalized_finding_target_lock_hash" != "$TARGET_LOCK_SHA256" ]; then
-            fail "$WORKSPACE/findings.md: $finding_id target lock SHA-256 does not match current target-lock.md"
-        fi
+        check_lock_binding_value "$WORKSPACE/findings.md: $finding_id" "$finding_target_lock_hash"
         validate_target_id_value "$WORKSPACE/findings.md: $finding_id" "$finding_target_ids"
         candidate_target_ids="$(field_value "$finding_candidate_file" "Target artifact IDs")"
         if [ "$finding_target_ids" != "$candidate_target_ids" ]; then
@@ -1131,8 +1241,11 @@ while IFS="$(printf '\t')" read -r finding_id finding_candidate finding_dedup fi
         fail "$finding_validation: validation record must be a regular workspace file, not a symlink"
     elif [ -f "$finding_validation" ]; then
         accepted_decision="$(field_value "$finding_validation" "Human decision / acceptor / date")"
-        if [ "$finding_human" != "$accepted_decision" ]; then
-            fail "$WORKSPACE/findings.md: $finding_id/$finding_candidate human decision does not match its validation record"
+        if [ "$REQUIRE_SIGNOFF" -eq 1 ] || \
+           { ! is_unset "$finding_human" && ! is_unset "$accepted_decision"; }; then
+            if [ "$finding_human" != "$accepted_decision" ]; then
+                fail "$WORKSPACE/findings.md: $finding_id/$finding_candidate human decision does not match its validation record"
+            fi
         fi
         validation_verdict="$(field_value "$finding_validation" "Evidence verdict")"
         if [ "$finding_verdict" != "$validation_verdict" ]; then
@@ -1146,9 +1259,11 @@ done < "$FINDING_LINKS"
 
 if [ "$HAS_CONFIRMED_DEPLOYED" -eq 1 ]; then
     require_table_substantive_field "$WORKSPACE/scope.md" "Deployment / program / package IDs"
-    require_table_substantive_field "$WORKSPACE/scope.md" "Deployed bytecode / package hash"
     require_table_substantive_field "$WORKSPACE/target-lock.md" "Deployment / program / package IDs"
-    require_table_substantive_field "$WORKSPACE/target-lock.md" "Deployed bytecode / package hash"
+    if [ "$STRICT_HASHES" -eq 1 ]; then
+        require_table_substantive_field "$WORKSPACE/scope.md" "Deployed bytecode / package hash"
+        require_table_substantive_field "$WORKSPACE/target-lock.md" "Deployed bytecode / package hash"
+    fi
     if [ "$MODE" = "final" ]; then
         validate_deployed_identity_format "$TARGET_CHAIN" "$TARGET_DEPLOYMENT" "$TARGET_DEPLOYED_HASH"
     fi
@@ -1168,7 +1283,6 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
 
         for field in \
             "Candidate ID" \
-            "Target lock SHA-256" \
             "Target artifact IDs" \
             "Target component" \
             "Target revision" \
@@ -1185,7 +1299,6 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
             "Known-issue search" \
             "Producer" \
             "Producer context / timestamp" \
-            "Source and verification artifact hashes" \
             "Cost versus impact" \
             "Potential severity / materiality" \
             "Coverage limitation" \
@@ -1196,7 +1309,6 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
         done
 
         for field in \
-            "Target lock SHA-256" \
             "Target artifact IDs" \
             "Target component" \
             "Target revision" \
@@ -1211,12 +1323,13 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
             "Known-issue search" \
             "Producer" \
             "Producer context / timestamp" \
-            "Source and verification artifact hashes" \
             "Cost versus impact" \
             "Potential severity / materiality" \
             "Disposition reason / evidence"; do
             require_substantive_field "$candidate_file" "$field"
         done
+        check_lock_binding "$candidate_file" "Target lock SHA-256"
+        require_field_when_strict_hashes "$candidate_file" "Source and verification artifact hashes"
 
         candidate_id="$(field_value "$candidate_file" "Candidate ID")"
         status="$(field_value "$candidate_file" "Status")"
@@ -1226,10 +1339,6 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
             fail "$candidate_file: Potential severity / materiality must use <engagement severity label> / MATERIAL or NON-MATERIAL"
         fi
 
-        candidate_target_lock_hash="$(field_value "$candidate_file" "Target lock SHA-256" | tr '[:upper:]' '[:lower:]')"
-        if [ "$candidate_target_lock_hash" != "$TARGET_LOCK_SHA256" ]; then
-            fail "$candidate_file: Target lock SHA-256 does not match the current target-lock.md"
-        fi
         if [ "$MODE" = "final" ]; then
             validate_target_id_list "$candidate_file" "Target artifact IDs"
             candidate_target_ids="$(field_value "$candidate_file" "Target artifact IDs")"
@@ -1262,7 +1371,7 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
 
         if [ "$MODE" = "final" ]; then
             case "$status" in
-                HUMAN-ACCEPTED|REJECTED|DUPLICATE|OUT-OF-SCOPE|INCONCLUSIVE) ;;
+                INDEPENDENTLY-VALIDATED|HUMAN-ACCEPTED|REJECTED|DUPLICATE|OUT-OF-SCOPE|INCONCLUSIVE) ;;
                 *) fail "$candidate_file: final triage requires a terminal disposition, not '$status'" ;;
             esac
         fi
@@ -1392,7 +1501,6 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                 else
                     for field in \
                         "Candidate" \
-                        "Target lock SHA-256" \
                         "Target artifact IDs" \
                         "Target/source revision and artifact hash" \
                         "Production build/profile or target-identity procedure" \
@@ -1409,25 +1517,19 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                         "Action sequence or proof derivation" \
                         "Evidence method" \
                         "Primary verification artifact path" \
-                        "Primary verification artifact SHA-256" \
                         "Exact command or review procedure" \
                         "Claimed impact / success criterion" \
                         "Primary evidence path" \
-                        "Primary evidence SHA-256" \
                         "Falsification / control procedure and expected discriminator" \
                         "Falsification / control evidence path" \
-                        "Falsification / control evidence SHA-256" \
                         "Production-state deviations" \
                         "Repeatability / proof-review result"; do
                         require_substantive_field "$reproducer" "$field"
                     done
+                    check_lock_binding "$reproducer" "Target lock SHA-256"
                     reproducer_candidate="$(field_value "$reproducer" "Candidate")"
                     if [ "$reproducer_candidate" != "$candidate_id" ]; then
                         fail "$reproducer: Candidate '$reproducer_candidate' must match '$candidate_id'"
-                    fi
-                    reproducer_target_lock_hash="$(field_value "$reproducer" "Target lock SHA-256" | tr '[:upper:]' '[:lower:]')"
-                    if [ "$reproducer_target_lock_hash" != "$TARGET_LOCK_SHA256" ]; then
-                        fail "$reproducer: Target lock SHA-256 does not match the current target-lock.md"
                     fi
                     if [ "$MODE" = "final" ]; then
                         validate_target_id_list "$reproducer" "Target artifact IDs"
@@ -1462,7 +1564,8 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                         CONFIRMED-DEPLOYED/DEPLOYED|CONFIRMED-RECONSTRUCTION/RECONSTRUCTION|CONFIRMED-LOGIC/LOGIC) ;;
                         *) fail "$reproducer: Evidence verdict '$manifest_verdict' contradicts Target fidelity '$target_fidelity'" ;;
                     esac
-                    if [ "$MODE" = "final" ] && [ "$manifest_verdict" = "CONFIRMED-DEPLOYED" ]; then
+                    if [ "$MODE" = "final" ] && [ "$manifest_verdict" = "CONFIRMED-DEPLOYED" ] && \
+                       ! is_unset "$TARGET_DEPLOYED_HASH" && ! is_non_substantive "$TARGET_DEPLOYED_HASH"; then
                         case "$manifest_target_source" in
                             *"$TARGET_DEPLOYED_HASH"*) ;;
                             *) fail "$reproducer: deployed target/source identity does not contain the locked deployed hash" ;;
@@ -1550,7 +1653,6 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                 else
                     for field in \
                         "Candidate" \
-                        "Target lock SHA-256" \
                         "Target artifact IDs" \
                         "Validator" \
                         "Validator context / timestamp" \
@@ -1567,18 +1669,14 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                         "Actor cost versus impact" \
                         "Recommendation" \
                         "Decision reason" \
-                        "Validation evidence path" \
-                        "Validation evidence SHA-256"; do
+                        "Validation evidence path"; do
                         require_substantive_field "$validation" "$field"
                     done
+                    check_lock_binding "$validation" "Target lock SHA-256"
 
                     validation_candidate="$(field_value "$validation" "Candidate")"
                     if [ "$validation_candidate" != "$candidate_id" ]; then
                         fail "$validation: Candidate '$validation_candidate' must match '$candidate_id'"
-                    fi
-                    validation_target_lock_hash="$(field_value "$validation" "Target lock SHA-256" | tr '[:upper:]' '[:lower:]')"
-                    if [ "$validation_target_lock_hash" != "$TARGET_LOCK_SHA256" ]; then
-                        fail "$validation: Target lock SHA-256 does not match the current target-lock.md"
                     fi
                     if [ "$MODE" = "final" ]; then
                         validate_target_id_list "$validation" "Target artifact IDs"
@@ -1597,7 +1695,8 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                     verify_workspace_artifact "$validation" "Validation evidence path" "Validation evidence SHA-256"
 
                     validation_evidence_verdict="$(field_value "$validation" "Evidence verdict")"
-                    if [ "$MODE" = "final" ] && [ "$validation_evidence_verdict" = "CONFIRMED-DEPLOYED" ]; then
+                    if [ "$MODE" = "final" ] && [ "$validation_evidence_verdict" = "CONFIRMED-DEPLOYED" ] && \
+                       ! is_unset "$TARGET_DEPLOYED_HASH" && ! is_non_substantive "$TARGET_DEPLOYED_HASH"; then
                         case "$validation_target_identity" in
                             *"$TARGET_DEPLOYED_HASH"*) ;;
                             *) fail "$validation: deployed target identity/configuration does not contain the locked deployed hash" ;;
@@ -1659,29 +1758,35 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                 ;;
         esac
 
-    if [ "$status" = "HUMAN-ACCEPTED" ]; then
+    case "$status" in
+        INDEPENDENTLY-VALIDATED|HUMAN-ACCEPTED)
             validation="$WORKSPACE/triage/validation/$candidate_id.md"
-            if [ -f "$validation" ] && [ ! -L "$validation" ]; then
-                require_field "$validation" "Human decision / acceptor / date"
-                human_decision="$(field_value "$validation" "Human decision / acceptor / date")"
-                if ! printf '%s\n' "$human_decision" | grep -Eq '^ACCEPTED[[:space:]]*/[[:space:]]*[^/[:space:]][^/]*/[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]*$'; then
-                    fail "$validation: HUMAN-ACCEPTED requires 'ACCEPTED / <human acceptor> / YYYY-MM-DD'"
+            # The signed decision is the report gate: enforced for a candidate
+            # that claims HUMAN-ACCEPTED, and for every finding under --report.
+            if [ "$status" = "HUMAN-ACCEPTED" ] || [ "$REQUIRE_SIGNOFF" -eq 1 ]; then
+                if [ -f "$validation" ] && [ ! -L "$validation" ]; then
+                    require_field "$validation" "Human decision / acceptor / date"
+                    human_decision="$(field_value "$validation" "Human decision / acceptor / date")"
+                    if ! printf '%s\n' "$human_decision" | grep -Eq '^ACCEPTED[[:space:]]*/[[:space:]]*[^/[:space:]][^/]*/[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]*$'; then
+                        fail "$validation: human sign-off requires 'ACCEPTED / <human acceptor> / YYYY-MM-DD'"
+                    fi
                 fi
             fi
             if ! awk -F '\t' -v candidate="$candidate_id" '$2 == candidate { found = 1 } END { exit(found ? 0 : 1) }' "$FINDING_LINKS"; then
-                fail "$candidate_file: HUMAN-ACCEPTED candidate is not linked from findings.md"
+                fail "$candidate_file: $status candidate is not linked from findings.md"
             fi
             if ! ledger_contains_key "$dedup_key"; then
-                fail "$candidate_file: accepted dedup key is missing from known-issues.md"
+                fail "$candidate_file: recorded finding's dedup key is missing from known-issues.md"
             fi
             printf '%s\t%s\n' "$dedup_key" "$candidate_id" >> "$ACCEPTED_KEYS"
-        fi
+            ;;
+    esac
     done < <(find "$WORKSPACE/triage/candidates" \( -type f -o -type l \) -name 'C-*.md' -print | LC_ALL=C sort)
 fi
 
 duplicate_accepted_key="$(awk -F '\t' '++seen[$1] == 2 { print $1; exit }' "$ACCEPTED_KEYS")"
 if [ -n "$duplicate_accepted_key" ]; then
-    fail "more than one HUMAN-ACCEPTED candidate uses dedup key '$duplicate_accepted_key'"
+    fail "more than one recorded finding uses dedup key '$duplicate_accepted_key'"
 fi
 
 if [ "$failures" -ne 0 ]; then

@@ -143,13 +143,13 @@ Created: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 - poc/             — optional executable PoCs/tests and logs
 - tmp/             — retained audit-relevant raw/intermediate data; never auto-clean solely because it is temporary
 - reports/         — default internal reference report plus explicitly requested external reports/revisions
-- target-lock.md   — immutable target identity + path/digest manifest used by evidence records
+- target-lock.md   — target identity + T-NN artifact manifest used by evidence records (digests optional internally)
 - scope.md         — Phase 0: pinned scope, revision, deployment, build profile, exclusions
 - orientation.md   — optional target-model scaffold or links to equivalent semantic evidence
 - atlas/           — optional reachability-scaffold output
 - model.md         — optional invariant/state/trust scaffold or links to equivalent evidence
 - triage/          — candidate registry, known-issue ledger, verification manifests, independent validation
-- findings.md      — human-accepted findings only; candidates remain under triage/
+- findings.md      — evidence-closed, independently validated findings; human sign-off is added before reporting
 - coverage.md      — closure ledger; every open row is a reported limitation
 
 Default internal reference report → reports/$PROTOCOL-$CHAIN-{REPORT-DATE}.md
@@ -203,8 +203,10 @@ EOF
 
 > Canonical immutable identity used by candidates, verification manifests,
 > validations, and findings. Complete this after target acquisition. If any
-> identity field or target artifact changes, generate a new SHA-256 and re-check
-> every linked claim; never bulk-replace the digest without revalidation.
+> identity field or target artifact changes, re-check every linked claim.
+> SHA-256 digests below are optional for internal review and required under
+> triage-check.sh --strict-hashes; a recorded digest is always verified, so
+> refresh it deliberately rather than bulk-replacing it.
 
 ## Target Identity
 
@@ -223,16 +225,17 @@ EOF
 ## Target Artifact Manifest
 
 > List every workspace artifact relied on to identify or analyze the scoped
-> target. Paths are workspace-relative regular files under contracts/; SHA-256
-> values are verified mechanically. Roles explain source/build/bytecode/config
-> significance and prevent arbitrary files from being mistaken for target units.
-> For deployed claims, use chain-native deployment IDs and digests, and retain
-> primary chain/build evidence that proves their semantic association. The lock
-> digest proves integrity/consistency, not on-chain existence by itself.
+> target. Paths are workspace-relative regular files under contracts/ and are
+> resolved mechanically. Roles explain source/build/bytecode/config significance
+> and prevent arbitrary files from being mistaken for target units. For deployed
+> claims, use chain-native deployment IDs and retain primary chain/build evidence
+> that proves their semantic association. Put a 64-hex SHA-256 in the digest
+> column when the engagement needs integrity binding, or leave it N/A; a
+> recorded digest is verified against the file.
 
 | Target ID | Workspace path | SHA-256 | Role / scope significance |
 |-----------|----------------|---------|---------------------------|
-| T-01 | TBD | TBD | TBD |
+| T-01 | TBD | N/A | TBD |
 EOF
 
 [ -f "$WORKSPACE/orientation.md" ] || cat > "$WORKSPACE/orientation.md" <<'EOF'
@@ -279,8 +282,8 @@ EOF
 # C-NN — Candidate Title
 
 - Candidate ID: C-NN
-- Target lock SHA-256: TBD
 - Target artifact IDs: T-NN <!-- comma-separated with no spaces, e.g. T-01,T-02 -->
+- Target lock SHA-256: N/A <!-- optional integrity binding; a recorded digest must match target-lock.md -->
 - Target component: TBD
 - Target revision: TBD
 - Deployment / package / program: TBD
@@ -296,7 +299,7 @@ EOF
 - Known-issue search: TBD
 - Producer: TBD
 - Producer context / timestamp: TBD
-- Source and verification artifact hashes: TBD
+- Source and verification artifact hashes: N/A <!-- optional; required under --strict-hashes -->
 - Cost versus impact: TBD
 - Potential severity / materiality: TBD / MATERIAL <!-- engagement taxonomy label / MATERIAL or NON-MATERIAL -->
 - Coverage limitation: TBD <!-- N/A unless INCONCLUSIVE; then cite coverage.md row -->
@@ -321,8 +324,8 @@ EOF
 > other method that supports the exact claim.
 
 - Candidate: C-NN
-- Target lock SHA-256:
 - Target artifact IDs:
+- Target lock SHA-256: N/A <!-- optional integrity binding; verified when recorded -->
 - Target/source revision and artifact hash:
 - Production build/profile or target-identity procedure:
 - Chain, deployment/configuration, dependencies:
@@ -338,14 +341,14 @@ EOF
 - Action sequence or proof derivation:
 - Evidence method:
 - Primary verification artifact path:
-- Primary verification artifact SHA-256:
+- Primary verification artifact SHA-256: N/A <!-- optional; the artifact itself must resolve -->
 - Exact command or review procedure:
 - Claimed impact / success criterion:
 - Primary evidence path:
-- Primary evidence SHA-256:
+- Primary evidence SHA-256: N/A <!-- optional; the artifact itself must resolve -->
 - Falsification / control procedure and expected discriminator:
 - Falsification / control evidence path:
-- Falsification / control evidence SHA-256:
+- Falsification / control evidence SHA-256: N/A <!-- optional; the artifact itself must resolve -->
 - Production-state deviations:
 - Repeatability / proof-review result:
 EOF
@@ -358,8 +361,8 @@ EOF
 > use a different sound method, or do both; record the method selected.
 
 - Candidate: C-NN
-- Target lock SHA-256: TBD
 - Target artifact IDs: T-NN
+- Target lock SHA-256: N/A <!-- optional integrity binding; verified when recorded -->
 - Validator: TBD
 - Validator context / timestamp: TBD
 - Independent from producer: TBD
@@ -376,40 +379,41 @@ EOF
 - Recommendation: TBD <!-- INDEPENDENTLY-VALIDATED / ACCEPT -->
 - Decision reason: TBD
 - Validation evidence path: TBD
-- Validation evidence SHA-256: TBD
-- Human decision / acceptor / date: TBD <!-- ACCEPTED / human name or role / YYYY-MM-DD -->
+- Validation evidence SHA-256: N/A <!-- optional; the artifact itself must resolve -->
+- Human decision / acceptor / date: TBD <!-- report gate, not the findings gate: ACCEPTED / human name or role / YYYY-MM-DD -->
 EOF
 
 [ -f "$WORKSPACE/findings.md" ] || cat > "$WORKSPACE/findings.md" <<'EOF'
-# Accepted Findings — Phases 8-9
+# Findings — Phases 8-10
 
-> Human-accepted findings only. All hypotheses and non-accepted dispositions stay
-> in `triage/candidates.md`.
+> Evidence-closed, independently validated findings only. Proof admits a finding
+> here; human sign-off is added before any report is issued. All hypotheses and
+> non-validated dispositions stay in `triage/candidates.md`.
 
 ## Format
 
 Each finding:
 - ID: F-NN
 - Candidate ID / dedup key: C-NN / <root-cause|invariant|sink>
-- Target lock SHA-256: <exact target-lock.md digest>
+- Target lock SHA-256: <exact target-lock.md digest, or N/A — optional unless --strict-hashes>
 - Target artifact IDs: T-NN
 - Discovery context / classification: <optional A-J lens, tool/query, manual/formal analysis, incident trace, or other useful label>
 - Target locator: <source line, bytecode range, instruction, transaction, object version, model obligation, or other exact locator>
 - Reachability chain / evidence: <entry sequence → effect, with code/model/evidence refs>
 - Mechanism: <evidence-backed mechanism, state transition, or violated proof obligation>
 - Invariant violated: <explicit safety/economic property; model.md ID when used>
-- Original severity: <engagement or bug-bounty taxonomy label; never rewrite because of remediation>
+- Original severity: <engagement or bug-bounty taxonomy label; Critical/High require an asset-loss consequence; never rewrite because of remediation>
 - Current remediation status: Open / Fixed - Verified / Partially Fixed / Acknowledged / Risk Accepted / Not Yet Retested
 - Current deployment: confirmed exploitable / conditionally exposed / plausibly exposed / not exposed at pinned state / not deployed / unknown <!-- confirmed/conditional/plausible/not-exposed state claims require CONFIRMED-DEPLOYED evidence -->
 - Deployment/state anchor: <network + deployment ID + immutable block/slot/checkpoint/object version, or NOT ASSESSED with reason>
 - Evidence verdict: CONFIRMED-DEPLOYED / CONFIRMED-RECONSTRUCTION / CONFIRMED-LOGIC
 - Verification evidence: triage/reproducers/C-NN.md
 - Independent validation: triage/validation/C-NN.md
-- Cost versus impact: <attacker prerequisites/cost versus user/protocol impact>
-- Human decision: ACCEPTED / <human acceptor> / YYYY-MM-DD
+- Cost versus impact: <attacker prerequisites/cost versus user/protocol impact; state explicitly whether the claim reaches loss of funds/assets>
+- Human decision: ACCEPTED / <human acceptor> / YYYY-MM-DD <!-- report gate; required before any report is issued (triage-check.sh --report) -->
 - Client response: <exact response or concise faithful summary + retained source reference/date, or NOT PROVIDED with date>
-- Remediation baseline: <for Fixed - Verified: revision=TYPE:IMMUTABLE_ID; manifest=WORKSPACE_RELATIVE_PATH; sha256=64HEX, otherwise NOT PROVIDED with reason>
-- Retest: <for Fixed - Verified: reviewer=IDENTITY; date=YYYY-MM-DD; method=UNRESTRICTED_DESCRIPTION; evidence=WORKSPACE_RELATIVE_PATH; sha256=64HEX; result=POSITIVE_MECHANISM_OR_PROPERTY_CLOSURE, otherwise NOT YET RETESTED with reason>
+- Remediation baseline: <for Fixed - Verified: revision=TYPE:IMMUTABLE_ID; manifest=WORKSPACE_RELATIVE_PATH[; sha256=64HEX], otherwise NOT PROVIDED with reason>
+- Retest: <for Fixed - Verified: reviewer=IDENTITY; date=YYYY-MM-DD; method=UNRESTRICTED_DESCRIPTION; evidence=WORKSPACE_RELATIVE_PATH[; sha256=64HEX]; result=POSITIVE_MECHANISM_OR_PROPERTY_CLOSURE, otherwise NOT YET RETESTED with reason>
 - Residual risk: <bounded remaining risk, or NO RESIDUAL RISK IDENTIFIED within stated retest scope>
 - Disclosure handling: <classification/embargo/redaction decision + owner/date, or NOT DECIDED>
 
@@ -434,7 +438,7 @@ EOF
 | Candidates with verification evidence | ? | 0 | ? | triage/reproducers/ + evidence/proof artifacts |
 | Independent validations | ? | 0 | ? | triage/validation/ |
 | Material candidate verdicts | ? | 0 | ? | candidate closure class + triage evidence |
-| Human-accepted findings | ? | 0 | ? | findings.md |
+| Findings recorded | ? | 0 | ? | findings.md |
 
 ## Method-Defined Security Coverage
 

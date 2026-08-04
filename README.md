@@ -13,16 +13,16 @@ Each skill is a directory of Markdown instructions plus its own scripts, chain c
 
 ## contract-security-audit
 
-Methodology-driven source audit whose defining property is that **discovery is unrestricted but claims are gated**. The skill does not prescribe how you find a bug — regex, AST queries, SAST, fuzzing, formal methods, or reading the code. It prescribes what may be written down as a finding: every candidate carries reachability, consequence, and falsification evidence, gets independently validated, and is promoted to `findings.md` only on explicit human acceptance.
+Methodology-driven source audit whose defining property is that **discovery is unrestricted but claims are gated**. The skill does not prescribe how you find a bug — regex, AST queries, SAST, fuzzing, formal methods, or reading the code. It prescribes what may be written down as a finding: every candidate carries reachability, consequence, and falsification evidence and is independently validated before it reaches `findings.md`. Proof is the admission gate; a human auditor signs each finding off before any report is issued.
 
 **Architecture** (four layers, in `references/`):
 
 - **Spine** — `methodology.md`: chain-agnostic truth gates, optional reachability-atlas scaffold, A–J lenses, severity calibration. EVM/Solidity as the lingua franca.
-- **Triage** — `triage.md`: the acceptance layer. Candidate contract, claim/evidence gates, independent validation, dedup, human sign-off. The source of truth for what enters a report.
+- **Triage** — `triage.md`: the acceptance layer. Candidate contract, claim/evidence gates, independent validation, dedup, and the report-stage human sign-off. The source of truth for what enters `findings.md` and what may be reported.
 - **Playbooks** — `playbook-solana.md`, `playbook-sui.md`: chain-native attack surfaces where the primitives diverge too far to translate in-head. EVM's playbook lives inline in the spine.
 - **Metrics** — `metrics-{evm,solana,sui}.md`: known-pattern catalogs (triggers, vulnerable→fix pairs, historical pointers). A catalog match is a lead, never a validated finding.
 
-**Flow** — 11 phases from setup through a human-accepted internal report. Setup → source fetch + **target lock** (every relied-on artifact gets a `T-NN` ID and SHA-256) → semantic model → optional reachability/coverage model → candidate registration → adversarial challenge → residual-surface sweep → verify + independent triage → severity calibration → report. Closure is tracked continuously in `coverage.md`, where **an unresolved row is a stated limitation, never a silent pass**.
+**Flow** — 11 phases from setup through a signed-off internal report. Setup → source fetch + **target lock** (every relied-on artifact gets a `T-NN` ID and path; digests are optional for internal review, required for external delivery) → semantic model → optional reachability/coverage model → candidate registration → adversarial challenge → residual-surface sweep → verify + independent triage → severity calibration (Critical/High reserved for loss of funds or assets) → human sign-off → report. Closure is tracked continuously in `coverage.md`, where **an unresolved row is a stated limitation, never a silent pass**.
 
 **Output** — `audit-workspace/{protocol}/reports/{protocol}-{chain}-{date}.md`, plus a retained evidence trail. The workspace is the durable engagement record, not scratch space: nothing is auto-pruned just because a candidate was rejected or the report is written.
 
@@ -127,4 +127,4 @@ Supported: **macOS** with zsh as the interactive shell and Apple Bash 3.2+, and 
 
 These skills are for auditing code you are authorized to audit and for analyzing incidents that have already happened. The PoC harnesses exist to *prove* a root cause on a local fork so it can be fixed and reported — that is the only reason they are here.
 
-Findings are agent-produced and evidence-gated, not certified. Both skills are explicit that human acceptance is the last gate: nothing reaches a report because a model asserted it.
+Findings are agent-produced and evidence-gated, not certified. Evidence is what makes a finding true; human sign-off is the last gate before anything is reported — nothing reaches a report because a model asserted it.

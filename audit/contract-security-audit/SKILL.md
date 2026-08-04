@@ -1,7 +1,7 @@
 ---
 name: contract-security-audit
 description: >
-  Audit production smart contracts with unrestricted discovery and validation methods, explicit safety/economic invariants, evidence-bound candidates, independent triage, coverage closure, and a human-accepted report. Use for smart contract security audits, vulnerability hunting, exploit/PoC verification, protocol economic-design review, or audit-report generation. Production chain references and optional harnesses cover EVM (Solidity/Vyper), Solana (Rust/Anchor), and Sui (Move); Aptos notes are comparative only, not production coverage. Compatible with Claude, Codex, and Hermes skill discovery. Bundled Bash scripts support macOS (including invocation from zsh) and Linux with Bash 3.2+.
+  Audit production smart contracts with unrestricted discovery and validation methods, explicit safety/economic invariants, evidence-bound candidates, independent triage, coverage closure, and a human-signed-off report. Use for smart contract security audits, vulnerability hunting, exploit/PoC verification, protocol economic-design review, or audit-report generation. Production chain references and optional harnesses cover EVM (Solidity/Vyper), Solana (Rust/Anchor), and Sui (Move); Aptos notes are comparative only, not production coverage. Compatible with Claude, Codex, and Hermes skill discovery. Bundled Bash scripts support macOS (including invocation from zsh) and Linux with Bash 3.2+.
 ---
 
 # Contract Security Audit (Method-Neutral Discovery + Evidence Triage)
@@ -9,7 +9,7 @@ description: >
 Methodology-driven source audit with independently reviewable evidence. Discovery and validation methods are deliberately unrestricted; the skill constrains what may be claimed, not how an agent must discover or prove it. The architecture is four layers:
 
 - **Spine** (`references/methodology.md`) — chain-agnostic: truth-gate rationale, an optional reachability-atlas scaffold, optional A–J lenses, and severity calibration, written in EVM/Solidity as the lingua franca. Its discovery/validation techniques are examples, not the source of a claim's truth.
-- **Triage** (`references/triage.md`) — candidate contract, claim/evidence gates, independent validation, deduplication, and human acceptance. The source of truth for deciding what may enter `findings.md`.
+- **Triage** (`references/triage.md`) — candidate contract, claim/evidence gates, independent validation, deduplication, and the report-stage human sign-off. The source of truth for deciding what may enter `findings.md`.
 - **Playbook** (`references/playbook-{solana,sui}.md`) — chain-native attack surfaces plus optional hunting and verification techniques. EVM's playbook content lives inline in the spine; Solana and Sui get dedicated files because their primitives diverge too far for in-head translation.
 - **Metrics** (`references/metrics-{evm,solana,sui}.md`) — per-chain
   *known-pattern catalogs*: candidate triggers, vulnerable→fix pairs, and
@@ -49,9 +49,11 @@ bash "$SKILL_DIR/scripts/compat-check.sh"
 >
 > **Axiom 2 — Optional ways to look:** Adversarial enumeration and the lenses below are high-recall thinking tools, not a prescribed workflow or checklist. The docs express intended behavior; target evidence determines actual behavior. The metric catalogs in `references/` are a reference library of historical patterns, not a coverage list.
 >
-> **Axiom 3 — What may count:** An agent is a search tool, not an oracle. A candidate becomes a finding only when reviewable evidence binds the claimed mechanism, reachability, impact, scope, and deployment state; survives a relevant falsification attempt; is deduplicated; is independently validated; and is human accepted. `findings = human_accept(independently_validate(evidence_bind(candidates)))`. Candidate volume is not an audit outcome; triage quality is.
+> **Axiom 3 — What may count:** An agent is a search tool, not an oracle. A candidate becomes a finding when reviewable evidence binds the claimed mechanism, reachability, impact, scope, and deployment state; survives a relevant falsification attempt; is deduplicated; and is independently validated. `findings = independently_validate(evidence_bind(candidates))`. Proof is the admission gate. A human auditor then signs each finding, its severity, and its disclosure decision before any report is issued: `report = human_signoff(findings)`. Candidate volume is not an audit outcome; triage quality is.
 >
 > **Axiom 4 — Methods are open:** manual review, agents, SAST, fuzzing, invariant/property testing, symbolic execution, formal methods, differential analysis, historical transactions, simulations, traces, replays, source-level proofs, or any combination may discover or validate a candidate. No method earns a finding by name, and no sound method is excluded. The evidence must support the exact claim.
+>
+> **Axiom 5 — Proof, not paperwork:** Claims bind to the target by identity (chain, deployment/program/package ID, revision, build profile, artifact path) and to evidence by a retained, openable artifact. SHA-256 digests are optional integrity bookkeeping for internal review and required only under `--strict-hashes` (external delivery, moving baselines, shared workspaces). A digest that *is* recorded must be correct; an absent digest is not a defect, but a missing or unreadable proof artifact always is.
 
 ---
 
@@ -79,16 +81,16 @@ routes; a catalog match is precedent, never proof.
 | Phase | Output | Owner |
 |-------|--------|-------|
 | 0. Setup | `audit-workspace/{protocol}/` initialized; `scope.md` records scope and `target-lock.md` initializes the immutable target snapshot | recon/main |
-| 1. Source fetch + target lock | `contracts/` populated; target identity reconciled between `scope.md` and `target-lock.md`; every relied-on target artifact assigned a `T-NN` ID and SHA-256 | main |
+| 1. Source fetch + target lock | `contracts/` populated; target identity reconciled between `scope.md` and `target-lock.md`; every relied-on target artifact assigned a `T-NN` ID and path (SHA-256 optional internally) | main |
 | 2. Understand the target (O, recommended artifact) | `audit-workspace/{protocol}/orientation.md` or pointers to equivalent reviewable semantic-model evidence | main |
 | 3. Reachability/coverage model (P, optional scaffold) | reviewable evidence for entries, state transitions, sinks, intent, and residual blind spots; the bundled `atlas/` is one option | main |
 | 4. Record the security model (C/D/E, optional scaffolds) | `audit-workspace/{protocol}/model.md` or pointers to equivalent invariant, transition, and trust evidence | main |
 | 5. Register candidates | `triage/candidates.md` + one schema-complete `triage/candidates/C-NN.md` per material lead, regardless of discovery method | recon |
 | 6. Challenge candidates | candidate files enriched with reachability, consequence, falsification, and scope/state evidence appropriate to each claim | hunter |
 | 7. Explore residual surfaces | optional A/B/F/G/H/X/J lenses or any other methods; append material leads under the same candidate contract | recon/hunter |
-| 8. Verify + triage | evidence artifacts, verification manifests, independent validation, dedup, human decision | hunter + independent validator + human |
-| 9. Severity calibration (I) | human-accepted candidates promoted to `findings.md`; severity finalized | human auditor |
-| 10. Internal reference report | one internal audit report in `audit-workspace/{protocol}/reports/{protocol}-{chain}-{date}.md`, built from accepted findings and retained workspace evidence | main/human |
+| 8. Verify + triage | evidence artifacts, verification manifests, independent validation, dedup | hunter + independent validator |
+| 9. Severity calibration (I) | independently validated candidates recorded in `findings.md`; severity calibrated under the asset-loss gate | main + human auditor |
+| 10. Report + sign-off | human sign-off on every recorded finding, then one internal audit report in `audit-workspace/{protocol}/reports/{protocol}-{chain}-{date}.md`, built from findings and retained workspace evidence | human + main |
 
 Track closure throughout in `audit-workspace/{protocol}/coverage.md`; an unresolved row is a limitation, never a pass.
 
@@ -126,12 +128,12 @@ not disposable scratch space.
   only retained report artifact.
 - Record remediation deliveries, client responses, exact fix revisions, retest
   evidence/results, residual risk, and disclosure handling in the corresponding
-  accepted entry in `findings.md` as those facts arise. Keep source communications
+  recorded entry in `findings.md` as those facts arise. Keep source communications
   and raw artifacts in `evidence/` or `tmp/` under the engagement's access rules.
 
 For an existing workspace created by an earlier skill version, re-run
 `init-workspace.sh` with the same protocol/chain to add missing durable directories
-without deleting data. Before final checking, migrate each accepted finding
+without deleting data. Before final checking, migrate each recorded finding
 manually: rename `Severity` to `Original severity`, then add current remediation
 status, deployment/state anchor, client response, remediation baseline, retest,
 residual risk, and disclosure handling. Use explicit reasoned `NOT ASSESSED`,
@@ -143,7 +145,7 @@ a fix, exposure state, client decision, or retest result during migration.
 **Reference files (read at start — always the spine and triage contract, plus the playbook + metrics for the target chain):**
 
 - `references/methodology.md` — first principles, truth-gate rationale, and optional P / A–J lenses (chain-agnostic). Always load for the shared evidence contract; use or replace its techniques freely.
-- `references/triage.md` — candidate lifecycle, role boundaries, verification-evidence contract, false-positive gates, independent validation, dedup, metrics, and human acceptance. Always load.
+- `references/triage.md` — candidate lifecycle, role boundaries, verification-evidence contract, false-positive gates, independent validation, dedup, metrics, and the report-stage human sign-off. Always load.
 - `references/playbook-solana.md` / `references/playbook-sui.md` — chain-native attack surfaces and optional hunting/verification techniques. Load for Solana/Sui audits. (EVM's playbook is inline in the spine.)
 - `references/metrics-{evm|solana|sui}.md` — the chain's **known-pattern catalog**
   for cross-reference and optional verification modeling. **Not a checklist;
@@ -162,7 +164,7 @@ a fix, exposure state, client decision, or retest result during migration.
 - `check-compiler.sh` — pragma vs CVE database check
 - `atlas-inventory.sh` — Pass P bootstrap: seed sinks/gates/writes tables from grep over source (EVM / Solana / Move)
 - `triage-index.sh` — deterministically rebuild/check the shared candidate index from one-file-per-candidate sources, reducing multi-agent edit conflicts
-- `triage-check.sh` — portable final acceptance check for pinned scope, closure placeholders, candidate/finding separation, verification artifacts, and independent validation; `--bootstrap` validates only a newly initialized workspace's structure
+- `triage-check.sh` — portable final acceptance check for pinned scope, closure placeholders, candidate/finding separation, verification artifacts, and independent validation; `--report` additionally requires human sign-off, `--strict-hashes` additionally requires every integrity digest, and `--bootstrap` validates only a newly initialized workspace's structure
 - `retention.sh` — shared non-destructive snapshot helper used before bundled scripts replace audit-relevant current outputs
 - `load-env.sh` — env var loader (sourced by other scripts)
 - `init-workspace.sh` — bootstrap workspace + references
@@ -245,22 +247,30 @@ artifact manifest. Complete it after acquiring the target:
   actual chain/revision association from primary artifacts;
 - assign every source, bytecode, package, configuration, or other target artifact
   relied on by the audit a stable `T-NN` ID, workspace-relative `contracts/`
-  path, verified SHA-256, and substantive role;
-- calculate the SHA-256 of the completed `target-lock.md` (for example,
-  `shasum -a 256 "$WORKSPACE/target-lock.md"` on macOS or
-  `sha256sum "$WORKSPACE/target-lock.md"` on Linux); and
-- record that target-lock digest and the exact relevant artifact-ID set (for
-  example `T-01,T-03`) in every candidate, verification manifest, independent
-  validation, and accepted finding.
+  path, and substantive role; and
+- record the exact relevant artifact-ID set (for example `T-01,T-03`) in every
+  candidate, verification manifest, independent validation, and recorded finding.
 
-The lock and checker establish content integrity, native identifier shape, and
+**Digests are optional for internal review.** Per-artifact SHA-256 values and the
+digest of the completed `target-lock.md` are integrity bookkeeping, not the binding
+itself — the binding is the identity above plus the artifact set. Record them when
+integrity matters (client/public delivery, a moving baseline, a shared or
+long-running workspace) using `shasum -a 256 <path>` on macOS or
+`sha256sum <path>` on Linux, and enforce them with
+`bash "$SKILL_DIR/scripts/triage-check.sh" --strict-hashes "$WORKSPACE"`. Whatever
+digest you do record is verified: a wrong or stale value fails the checker in every
+mode, while an absent one fails only under `--strict-hashes`. Deployment
+identifiers (address, program ID, package ID) remain required for any deployed
+claim in every mode; only the digest columns relax.
+
+The lock and checker establish target identity, native identifier shape, and
 cross-record consistency; they cannot by themselves prove that a typed address,
 hash, source revision, or human/validator identity is authentic. Primary
 deployment/build/state evidence plus independent review establish that semantic
 association. This does not constrain how a vulnerability is discovered or
 validated. If any identity value or target
-artifact content changes, create the updated lock digest and re-check every
-linked claim and artifact set. Never bulk-replace a digest merely to make stale
+artifact content changes, re-check every linked claim and artifact set and refresh
+any digest that was recorded. Never bulk-replace a digest merely to make stale
 evidence pass. Scope work-unit or coverage edits that do not alter target
 identity/artifacts do not require a new target lock.
 
@@ -447,7 +457,7 @@ The **Hypothesis Ladder** is one optional discovery accelerator. It covers ident
 - **Solana:** the native ladder in `references/playbook-solana.md § 2` (signer/authority binding, account-owner/discriminator validation, PDA/bump, arbitrary CPI, oracle, atomic-tx composition — mapped to `[SOL-Gn]` gates and SlowMist items).
 - **Sui:** the native ladder in `references/playbook-sui.md § 2` (capability/visibility, object-ownership mode & abilities, shift/precision math, Coin/Balance lifecycle, hot-potato/oracle, init/upgrade, PTB composition — mapped to `[SUI-Gn]` gates).
 
-The categories map 1:1 across chains; the questions are native. For every material lead—regardless of how it was found—create a schema-complete `$WORKSPACE/triage/candidates/C-NN.md`; do not write it to `findings.md`. Record the target-lock SHA-256 and exact `T-NN` artifact-ID set, target, attacker/preconditions, mechanism and reachability evidence, claimed impact, relevant falsification, dedup key, provenance, and lifecycle status required by `references/triage.md`.
+The categories map 1:1 across chains; the questions are native. For every material lead—regardless of how it was found—create a schema-complete `$WORKSPACE/triage/candidates/C-NN.md`; do not write it to `findings.md`. Record the exact `T-NN` artifact-ID set (plus the target-lock SHA-256 if the engagement requires digests), target, attacker/preconditions, mechanism and reachability evidence, claimed impact, relevant falsification, dedup key, provenance, and lifecycle status required by `references/triage.md`.
 
 Per-candidate files are authoritative. After creating or changing one, rebuild
 the deterministic multi-agent index instead of editing it directly:
@@ -543,26 +553,41 @@ Keep three fields separate: **code-impact severity**, **deployment exploitabilit
 
 Apply `references/triage.md` before anything enters `findings.md`:
 
-1. **Scope fidelity:** bind the evidence to the current `target-lock.md` SHA-256 and exact relevant `T-NN` artifact set, and therefore to the scoped revision, production/release profile, deployment/configuration, and relevant state. The lock identity must match `scope.md`; state every deviation.
+1. **Scope fidelity:** bind the evidence to the `target-lock.md` target identity and exact relevant `T-NN` artifact set, and therefore to the scoped revision, production/release profile, deployment/configuration, and relevant state. The lock identity must match `scope.md`; state every deviation. Recording the lock digest is optional internally and verified when present.
 2. **Reachability:** demonstrate or rigorously derive the claimed entry, preconditions, transitions, and effect. Constructed state is valid only for the claim it actually supports.
 3. **Impact and falsification:** define a measurable success criterion and try to falsify the mechanism. Use a negative control when meaningful; otherwise document the proof obligation, counterexample search, or reason a control is inapplicable.
-4. **Provenance and integrity:** record producer context, evidence method, exact command or review procedure, artifact paths and hashes, target/state anchors, dependencies, and result. Use a native immutable anchor (for example positive block/slot, native transaction digest, object-ID@version set, content-addressed snapshot, or versioned revision). Repeatability is evidence-specific; there is no arbitrary rerun quota.
+4. **Provenance and integrity:** record producer context, evidence method, exact command or review procedure, artifact paths, target/state anchors, dependencies, and result. Every referenced artifact must be retained and openable in the workspace; its digest is optional internally. Use a native immutable anchor (for example positive block/slot, native transaction digest, object-ID@version set, content-addressed snapshot, or versioned revision). Repeatability is evidence-specific; there is no arbitrary rerun quota.
 5. **Deduplication:** search `triage/known-issues.md`, prior candidates/findings, upstream advisories, and known fixes using the candidate dedup key.
-6. **Cost versus impact:** quantify attacker capital, privilege, ordering, timing, fees, and repetitions against user/protocol/network impact.
-7. **Independent validation:** a validator other than the producer inspects the primary artifacts and assumptions and independently challenges reachability, impact, target-lock fidelity, and falsification. The validator may rerun or re-review the documented method, use a different sound method, or do both, and records the selected method and result in `triage/validation/C-NN.md`.
-8. **Human acceptance:** a human auditor records the final finding, severity, and disclosure decision. Agents do not self-accept findings.
+6. **Cost versus impact:** quantify attacker capital, privilege, ordering, timing, fees, and repetitions against user/protocol/network impact, and state explicitly whether the claim reaches loss of funds or assets.
+7. **Independent validation:** a validator other than the producer inspects the primary artifacts and assumptions and independently challenges reachability, impact, target fidelity, and falsification. The validator may rerun or re-review the documented method, use a different sound method, or do both, and records the selected method and result in `triage/validation/C-NN.md`.
+
+Gates 1–7 admit the candidate to `findings.md`; no human decision is required to record a proven finding, and none may waive these gates. Before any report is issued, a human auditor records the acceptance, severity, and disclosure decision for each finding (Phase 10) — that is the report gate.
 
 For multi-step candidates, preserve the full sequence and state dependencies. A stateful harness, model checker, symbolic trace, formal transition proof, historical trace, or another faithful technique may establish it. An LLM-proposed sequence by itself is only a lead.
 
-Run `bash "$SKILL_DIR/scripts/triage-check.sh" "$WORKSPACE"` before reporting. Passing the checker catches missing contracts and obvious separation errors; it does not replace independent judgment.
+Run the checker at the gate you are actually at:
 
-For a `Fixed - Verified` accepted finding, keep the validation method unrestricted
+```bash
+# Findings gate — evidence, validation, closure. Digests optional.
+bash "$SKILL_DIR/scripts/triage-check.sh" "$WORKSPACE"
+
+# Report gate — additionally requires human sign-off on every recorded finding.
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$WORKSPACE"
+
+# External/client delivery — also require every integrity digest.
+bash "$SKILL_DIR/scripts/triage-check.sh" --report --strict-hashes "$WORKSPACE"
+```
+
+Passing the checker catches missing contracts and obvious separation errors; it does not replace independent judgment.
+
+For a `Fixed - Verified` finding, keep the validation method unrestricted
 but store its provenance in the structured `findings.md` fields emitted by
 `init-workspace.sh`. The remediation-baseline manifest and retest evidence must be
-workspace-relative retained files with matching SHA-256 values. The checker
-validates that binding, the real calendar date, the immutable revision descriptor,
-and an explicit positive mechanism/property-closure result; the human reviewer
-still decides whether the chosen method is target-faithful and sufficient.
+workspace-relative retained files; their `sha256=` values are optional internally
+and required under `--strict-hashes`, and any recorded value must match the file.
+The checker validates that binding, the real calendar date, the immutable revision
+descriptor, and an explicit positive mechanism/property-closure result; the human
+reviewer still decides whether the chosen method is target-faithful and sufficient.
 
 ### Claim-to-Evidence Fit
 
@@ -601,7 +626,7 @@ Use `templates/simulation/` as starting templates. Adapt with the PoC Pattern Li
 Example procedure (adapt or replace):
 
 1. **Pick the fork block deliberately.** If using a fork, pin a numeric block and explain whether it represents a normal supported configuration, a transient window, or historical state.
-2. Copy the closest template into `$WORKSPACE/poc/C-{NN}_Fork.t.sol` while it is a candidate. Rename/link it to `F-{NN}` only after human acceptance.
+2. Copy the closest template into `$WORKSPACE/poc/C-{NN}_Fork.t.sol` while it is a candidate. Rename/link it to `F-{NN}` once the candidate is recorded as a finding.
 3. Replace `TARGET`, `BORROW_TOKEN`, etc. with the audited deployment's actual addresses.
 4. Implement the candidate mechanism from the real attacker entry. Use `vm.prank(makeAddr("attacker"))`; the attacker should be a *fresh* address with no hidden pre-funding.
 5. Assert fund-effect (PoC Pattern Library assertion discipline):
@@ -661,7 +686,7 @@ constrain mode selection:
 
 ## Phase 9: Severity Calibration (Post-Pass I)
 
-For every independently validated candidate recommended for acceptance, calibrate severity along the 5 axes from `methodology.md` § I:
+For every independently validated candidate, calibrate severity along the 5 axes from `methodology.md` § I:
 
 - Blast radius
 - Reversibility
@@ -669,13 +694,23 @@ For every independently validated candidate recommended for acceptance, calibrat
 - Mempool visibility
 - Detection latency
 
+**Apply the asset-loss gate first.** Critical and High are reserved for findings
+that reach loss of funds or assets — extraction, unbacked mint, insolvency, or
+permanent lock of user/protocol assets. Answer that question explicitly in the
+finding's cost-versus-impact field:
+
+- Asset loss reached → choose Critical or High by magnitude, reversibility, and prerequisites.
+- No asset-loss path → cap at Medium, however novel the mechanism. Authorization or integrity violations with no value at stake, temporary liveness loss, and griefing without extraction belong here.
+- Privileged-role or governance abuse counts as asset loss only when the abused authority actually reaches funds (upgrade → drain, mint, parameter → extraction). Trace that path; do not assume it.
+
 Assign Critical / High / Medium / Low / Informational using the engagement's or
-bug-bounty program's taxonomy. When none is supplied, use the examples in
-`methodology.md` and state the policy; deployment/sign-off actions belong to the
-owner's policy, not the evidence grade. A human auditor then records the
-acceptance decision and promotes the candidate to `findings.md`. Rejected,
-duplicate, out-of-scope, and inconclusive candidates stay in `triage/`; material
-inconclusive candidates are report limitations.
+bug-bounty program's taxonomy. When none is supplied, use the tiers in
+`methodology.md § I` and state the policy; deployment/sign-off actions belong to the
+owner's policy, not the evidence grade. Validated candidates are recorded in
+`findings.md` on their evidence; a human auditor signs each one off in Phase 10
+before a report is issued. Rejected, duplicate, out-of-scope, and inconclusive
+candidates stay in `triage/`; material inconclusive candidates are report
+limitations.
 
 Do not make the engagement's label vocabulary a checker gate. Candidate records
 pair the chosen severity label with a separate `MATERIAL` or `NON-MATERIAL`
@@ -684,16 +719,28 @@ clean-verdict gate.
 
 ---
 
-## Phase 10: Internal Reference Report
+## Phase 10: Human Sign-off + Internal Reference Report
+
+Reporting is the human gate. Before building any report, a human auditor records
+the acceptance decision, final severity, and disclosure decision for every recorded
+finding — `Human decision` in `findings.md`, `Human decision / acceptor / date` in
+the validation record, and candidate status `HUMAN-ACCEPTED` — then verifies it:
+
+```bash
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$WORKSPACE"
+```
+
+A finding that is evidence-closed but not yet signed off stays in `findings.md` and
+blocks only the report, not the audit.
 
 Use `templates/audit-report.md` by default. Build one internal reference report
 from `scope.md`, `target-lock.md`, `findings.md`, `coverage.md`, the security model
 actually used, and retained evidence. Include:
 
-1. **Executive Summary** - bounded verdict, accepted findings, evidence status, and material limitations
-2. **Scope and Target Binding** - immutable target-lock digest, artifact IDs, revisions/deployments, build profile, inclusions, and exclusions
-3. **Triage Summary** - candidate dispositions, independent validation, human acceptance, and unresolved material candidates
-4. **Findings and Evidence** - accepted findings only, with candidate/dedup provenance, evidence basis, target/state anchor, severity, remediation, and residual risk
+1. **Executive Summary** - bounded verdict, signed-off findings, evidence status, and material limitations
+2. **Scope and Target Binding** - target identity, artifact IDs, revisions/deployments, build profile, inclusions, exclusions, and the lock digest when the engagement records one
+3. **Triage Summary** - candidate dispositions, independent validation, human sign-off, and unresolved material candidates
+4. **Findings and Evidence** - signed-off findings only, with candidate/dedup provenance, evidence basis, target/state anchor, severity (with the asset-loss answer behind any Critical/High), remediation, and residual risk
 5. **Coverage and Closure** - objective artifact reconciliation, covered surfaces, blind spots, assumptions, and blocked checks
 6. **Methods and References** - methods actually used, material tooling/configuration, and relevant disclosure notes
 
@@ -708,7 +755,10 @@ conversion and disclosure review.
 
 Generate `templates/external-audit-report.md` only when the user explicitly asks
 for an external, client-facing, public, or professional delivery report. Build it
-from the retained workspace and accepted findings; do not create it routinely.
+from the retained workspace and signed-off findings; do not create it routinely.
+For an external delivery, integrity binding does matter — gate it with
+`bash "$SKILL_DIR/scripts/triage-check.sh" --report --strict-hashes "$WORKSPACE"`
+and record the digests that run requires.
 Save its editable source as
 `audit-workspace/{protocol}/reports/{protocol}-{chain}-{YYYY-MM-DD}-external.md`.
 Create a top-level `audits/` file, client delivery, or public copy only when
@@ -766,10 +816,10 @@ exploitation, follow responsible disclosure:
 ## Workflow Summary (Single-Line)
 
 ```
-[optional helper preflight] → pin scope + target lock → [optional orient/model artifacts] → discover by any method → register candidates → bind target/evidence → independent triage → human accept → calibrate → closure gate → report
+[optional helper preflight] → pin scope + target lock → [optional orient/model artifacts] → discover by any method → register candidates → bind target/evidence → independent triage → record finding → calibrate (asset-loss gate) → closure gate → human sign-off → report
 ```
 
-Every accepted finding ends with independently reviewable claim-bound evidence, independent validation, and a human decision. Material `INCONCLUSIVE` candidates and incomplete coverage remain explicit limitations and prevent a `NO-MATERIAL-FINDINGS` verdict.
+Every recorded finding rests on independently reviewable claim-bound evidence and independent validation; every reported finding additionally carries a human decision. Material `INCONCLUSIVE` candidates and incomplete coverage remain explicit limitations and prevent a `NO-MATERIAL-FINDINGS` verdict.
 
 ---
 
@@ -784,7 +834,7 @@ contract-security-audit/
 │   └── compiler-cves.json                # Compiler advisory database
 ├── references/
 │   ├── methodology.md                    # Chain-agnostic spine (O/P, A–J lenses, severity) + EVM ladder & PoC library
-│   ├── triage.md                         # Candidate contract, false-positive gates, independent validation, human acceptance
+│   ├── triage.md                         # Candidate contract, false-positive gates, independent validation, report sign-off
 │   ├── playbook-solana.md                # Solana semantics + optional prompts/verification examples
 │   ├── playbook-sui.md                   # Sui/Move semantics + optional prompts/verification examples
 │   ├── metrics-evm.md                    # EVM catalog — dated historical pointers; primary-source verification required
@@ -821,6 +871,6 @@ contract-security-audit/
     ├── check-compiler.sh                 # Compiler vs CVE check (EVM)
     ├── atlas-inventory.sh                # Pass P bootstrap (EVM / Solana / Move greps)
     ├── triage-index.sh                   # Deterministic candidate index generator/checker
-    ├── triage-check.sh                   # Candidate/finding separation + triage artifact validation
+    ├── triage-check.sh                   # Candidate/finding separation + triage artifact validation (--report / --strict-hashes)
     └── load-env.sh                       # Env var loader (sourced)
 ```

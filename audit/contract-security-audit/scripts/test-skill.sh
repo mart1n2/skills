@@ -181,7 +181,7 @@ for spec in "evm-demo ethereum" "solana-demo solana" "sui-demo sui"; do
         done
         grep -Fq '## Target Identity' "audit-workspace/$protocol/target-lock.md"
         grep -Fq '## Target Artifact Manifest' "audit-workspace/$protocol/target-lock.md"
-        grep -Fq '| T-01 | TBD | TBD | TBD |' "audit-workspace/$protocol/target-lock.md"
+        grep -Fq '| T-01 | TBD | N/A | TBD |' "audit-workspace/$protocol/target-lock.md"
         test -d "audit-workspace/$protocol/atlas"
         test -d "audit-workspace/$protocol/tmp"
         test -d "audit-workspace/$protocol/reports"
@@ -1626,6 +1626,124 @@ mv "$TMP_ROOT/audit-workspace/evm-demo/coverage.md.tmp" \
 bash "$SKILL_DIR/scripts/triage-index.sh" "$TMP_ROOT/audit-workspace/evm-demo" >/dev/null
 bash "$SKILL_DIR/scripts/triage-check.sh" "$TMP_ROOT/audit-workspace/evm-demo"
 run_adversarial_triage_tests
+
+# ---------------------------------------------------------------------------
+# Proof is the findings gate; human sign-off is the report gate; integrity
+# digests are optional for internal review.
+# ---------------------------------------------------------------------------
+DEMO_WS="$TMP_ROOT/audit-workspace/evm-demo"
+
+expect_gate_failure() {
+    gate_message="$1"
+    gate_expected="$2"
+    shift 2
+    gate_log="$TMP_ROOT/gate-failure.log"
+    if bash "$SKILL_DIR/scripts/triage-check.sh" "$@" "$DEMO_WS" >"$gate_log" 2>&1; then
+        printf '%s\n' "$gate_message" >&2
+        exit 1
+    fi
+    if ! grep -Fq -e "$gate_expected" "$gate_log"; then
+        printf '%s Expected error containing: %s\n' "$gate_message" "$gate_expected" >&2
+        sed -n '1,80p' "$gate_log" >&2
+        exit 1
+    fi
+}
+
+# The signed fixture must satisfy the report gate as-is.
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+
+# An independently validated finding with no signed decision is a legitimate
+# findings.md entry: it closes on evidence and blocks only reporting.
+for signed_file in triage/candidates/C-02.md triage/validation/C-02.md findings.md; do
+    cp "$DEMO_WS/$signed_file" "$DEMO_WS/$signed_file.signed"
+done
+sed 's/^- Status: HUMAN-ACCEPTED$/- Status: INDEPENDENTLY-VALIDATED/' \
+    "$DEMO_WS/triage/candidates/C-02.md.signed" > "$DEMO_WS/triage/candidates/C-02.md"
+sed 's#^- Human decision / acceptor / date:.*#- Human decision / acceptor / date: TBD#' \
+    "$DEMO_WS/triage/validation/C-02.md.signed" > "$DEMO_WS/triage/validation/C-02.md"
+sed '/^- Human decision:/d' "$DEMO_WS/findings.md.signed" > "$DEMO_WS/findings.md"
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+expect_gate_failure 'Unsigned finding unexpectedly passed the report gate.' \
+    'requires linked candidate C-02 to be HUMAN-ACCEPTED' --report
+for signed_file in triage/candidates/C-02.md triage/validation/C-02.md findings.md; do
+    mv "$DEMO_WS/$signed_file.signed" "$DEMO_WS/$signed_file"
+done
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+
+# A workspace that records no integrity digest at all still closes on proof;
+# --strict-hashes is the opt-in for delivery-grade integrity binding.
+for hashless_file in scope.md target-lock.md triage/candidates/C-02.md \
+    triage/reproducers/C-02.md triage/validation/C-02.md findings.md; do
+    cp "$DEMO_WS/$hashless_file" "$DEMO_WS/$hashless_file.hashed"
+done
+for identity_file in scope.md target-lock.md; do
+    sed 's#^| Deployed bytecode / package hash |.*|$#| Deployed bytecode / package hash | N/A |#' \
+        "$DEMO_WS/$identity_file.hashed" > "$DEMO_WS/$identity_file"
+done
+sed 's#^| T-01 | contracts/Vault.sol | [0-9a-f]* |#| T-01 | contracts/Vault.sol | N/A |#' \
+    "$DEMO_WS/target-lock.md" > "$DEMO_WS/target-lock.md.tmp"
+mv "$DEMO_WS/target-lock.md.tmp" "$DEMO_WS/target-lock.md"
+grep -Fq '| T-01 | contracts/Vault.sol | N/A |' "$DEMO_WS/target-lock.md"
+for hashless_file in triage/candidates/C-02.md triage/reproducers/C-02.md \
+    triage/validation/C-02.md findings.md; do
+    sed \
+        -e 's#^- Target lock SHA-256:.*#- Target lock SHA-256: N/A#' \
+        -e 's#^- Source and verification artifact hashes:.*#- Source and verification artifact hashes: N/A#' \
+        -e 's#^- Primary verification artifact SHA-256:.*#- Primary verification artifact SHA-256: N/A#' \
+        -e 's#^- Primary evidence SHA-256:.*#- Primary evidence SHA-256: N/A#' \
+        -e 's#^- Falsification / control evidence SHA-256:.*#- Falsification / control evidence SHA-256: N/A#' \
+        -e 's#^- Validation evidence SHA-256:.*#- Validation evidence SHA-256: N/A#' \
+        "$DEMO_WS/$hashless_file.hashed" > "$DEMO_WS/$hashless_file"
+done
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+expect_gate_failure 'Digest-free workspace unexpectedly passed --strict-hashes.' \
+    '--strict-hashes requires' --strict-hashes
+
+# Dropping the digest never drops the proof: the referenced artifact must still
+# resolve to a retained non-empty workspace file.
+cp "$DEMO_WS/triage/reproducers/C-02.md" "$DEMO_WS/triage/reproducers/C-02.md.resolvable"
+sed 's#^- Primary evidence path:.*#- Primary evidence path: evidence/C-02-absent.log#' \
+    "$DEMO_WS/triage/reproducers/C-02.md.resolvable" > "$DEMO_WS/triage/reproducers/C-02.md"
+expect_gate_failure 'Unresolvable digest-free evidence path unexpectedly passed.' \
+    "does not resolve to a non-empty file"
+mv "$DEMO_WS/triage/reproducers/C-02.md.resolvable" "$DEMO_WS/triage/reproducers/C-02.md"
+
+# A recorded digest is still verified even when digests are optional.
+cp "$DEMO_WS/triage/reproducers/C-02.md" "$DEMO_WS/triage/reproducers/C-02.md.optional"
+sed 's#^- Primary evidence SHA-256:.*#- Primary evidence SHA-256: 0000000000000000000000000000000000000000000000000000000000000000#' \
+    "$DEMO_WS/triage/reproducers/C-02.md.optional" > "$DEMO_WS/triage/reproducers/C-02.md"
+expect_gate_failure 'Mismatched optional digest unexpectedly passed.' \
+    "'Primary evidence SHA-256' does not match"
+sed 's#^- Primary evidence SHA-256:.*#- Primary evidence SHA-256: not-a-digest#' \
+    "$DEMO_WS/triage/reproducers/C-02.md.optional" > "$DEMO_WS/triage/reproducers/C-02.md"
+expect_gate_failure 'Free-text stand-in for a digest unexpectedly passed.' \
+    'must be a 64-hex SHA-256 or an explicit N/A'
+mv "$DEMO_WS/triage/reproducers/C-02.md.optional" "$DEMO_WS/triage/reproducers/C-02.md"
+
+for hashless_file in scope.md target-lock.md triage/candidates/C-02.md \
+    triage/reproducers/C-02.md triage/validation/C-02.md findings.md; do
+    mv "$DEMO_WS/$hashless_file.hashed" "$DEMO_WS/$hashless_file"
+done
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" --report --strict-hashes "$DEMO_WS" >/dev/null
+
+# The canonical closure row is "Findings recorded"; the pre-sign-off-gate name
+# stays valid, but exactly one of them must be present.
+cp "$DEMO_WS/coverage.md" "$DEMO_WS/coverage.md.legacy-row"
+sed 's/^| Human-accepted findings |/| Findings recorded |/' \
+    "$DEMO_WS/coverage.md.legacy-row" > "$DEMO_WS/coverage.md"
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+awk '{ print } /^\| Findings recorded \|/ { print "| Human-accepted findings | 1 | 1 | 0 | duplicate row |" }' \
+    "$DEMO_WS/coverage.md" > "$DEMO_WS/coverage.md.tmp"
+mv "$DEMO_WS/coverage.md.tmp" "$DEMO_WS/coverage.md"
+expect_gate_failure 'Duplicate findings-closure rows unexpectedly passed.' \
+    'exactly one findings row'
+mv "$DEMO_WS/coverage.md.legacy-row" "$DEMO_WS/coverage.md"
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
 
 if (cd "$TMP_ROOT" && bash "$SKILL_DIR/scripts/init-workspace.sh" aptos-demo aptos >/dev/null 2>&1); then
     printf 'Aptos fail-closed check unexpectedly succeeded.\n' >&2

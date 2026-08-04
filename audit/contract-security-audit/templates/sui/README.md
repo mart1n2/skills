@@ -33,7 +33,7 @@ When using an executable PoC, assert the claimed consequence: net value change, 
 Record a method-appropriate falsification/control and preserve the relevant
 artifacts. A validator other than the producer independently challenges the
 claim by inspecting the primary artifacts and may rerun/re-review the documented
-method, use a different sound method, or do both. Record the current target-lock
-SHA-256 and exact `T-NN` artifact set in the candidate, verification manifest,
-validation, and accepted finding. Only a human-accepted candidate is copied into
-`findings.md`.
+method, use a different sound method, or do both. Record the exact `T-NN` artifact
+set — plus the target-lock SHA-256 when the engagement records digests — in the
+candidate, verification manifest, validation, and recorded finding. Only an
+independently validated candidate is copied into `findings.md`.
