@@ -123,8 +123,12 @@ bash analysis/security-incident-analysis/scripts/test-skill.sh
 
 Supported: **macOS** with zsh as the interactive shell and Apple Bash 3.2+, and **Linux** with Bash 3.2+. Run bundled scripts explicitly with `bash` rather than relying on the interactive shell. Contributions must avoid Bash 4-only features (`mapfile`, associative arrays, `${var,,}`, namerefs) and GNU-only tool flags without a Darwin fallback.
 
-## Scope
+## License
 
-These skills are for auditing code you are authorized to audit and for analyzing incidents that have already happened. The PoC harnesses exist to *prove* a root cause on a local fork so it can be fixed and reported — that is the only reason they are here.
+MIT — see [LICENSE](LICENSE).
 
-Findings are agent-produced and evidence-gated, not certified. Evidence is what makes a finding true; human sign-off is the last gate before anything is reported — nothing reaches a report because a model asserted it.
+## Disclaimer
+
+These skills are published for **research and educational purposes only**, and are provided as is under the MIT license — no warranty, no liability (see [LICENSE](LICENSE)).
+
+They are tooling, not a security guarantee: the output is not a certification, absence of a reported finding is not evidence that no vulnerability exists, and agent-produced findings need qualified human review before anyone acts on them. Use them only on code you own or are explicitly authorized to test — the bundled PoC harnesses exist to prove a root cause on a local fork so it can be fixed and disclosed, not to attack a live deployment.
