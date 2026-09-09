@@ -203,6 +203,9 @@ a fix, exposure state, client decision, or retest result during migration.
   verification before citation.**
 - `config/chains.json` — chain RPC + explorer config (incl. Solana/Sui; Aptos is metadata-only)
 - `config/compiler-cves.json` — compiler version advisory database (EVM)
+- `references/evm-tools.md` — read when selecting Etherscan API/CLI acquisition,
+  Halmos symbolic properties, or Echidna campaigns; includes result limits and
+  retained-evidence guidance. These tools are optional, not audit prerequisites.
 
 **Bundled scripts (all under `scripts/`):**
 
@@ -274,6 +277,7 @@ capabilities before invoking fetch, RPC, compiler, or Foundry scripts:
 bash "$SKILL_DIR/scripts/preflight.sh" "$WORKSPACE"
 source "$WORKSPACE/tool-resolution.env"
 # Use $HAS_FORGE, $HAS_CAST in conditional logic
+# Optional inventory: $HAS_ETHERSCAN_CLI, $HAS_HALMOS, $HAS_ECHIDNA
 ```
 
 `AUDIT_MODE` describes those helper capabilities, not the truth of a candidate.
@@ -345,6 +349,13 @@ Use the bundled fetch script (handles Etherscan V2, Sourcify, GitHub fallback):
 bash "$SKILL_DIR/scripts/fetch-source.sh" \
   "$ADDRESSES" "$CHAIN" "$WORKSPACE/contracts"
 ```
+
+The helper retains complete explorer response bodies and sanitized request
+metadata in each `tmp/fetch-source/<run-id>` generation before extracting source.
+Keep these records, including failed responses, for build/proxy reconciliation.
+For ad hoc CLI queries or another acquisition path, use
+[references/evm-tools.md](references/evm-tools.md). API and CLI share Etherscan's
+data and limits; using both does not provide independent corroboration.
 
 Validate verification status:
 

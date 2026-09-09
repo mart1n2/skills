@@ -51,10 +51,9 @@ get_version() {
     local bin="$1"
     local ver=""
     case "$bin" in
-        cast)   ver=$(cast --version 2>/dev/null | head -1) ;;
-        forge)  ver=$(forge --version 2>/dev/null | head -1) ;;
-        jq)     ver=$(jq --version 2>/dev/null | head -1) ;;
-        python3) ver=$(python3 --version 2>/dev/null | head -1) ;;
+        etherscan) ver=$(etherscan version 2>/dev/null | head -1) || ver="unknown" ;;
+        cast|forge|jq|python3|halmos|echidna)
+            ver=$("$bin" --version 2>/dev/null | head -1) || ver="unknown" ;;
     esac
     echo "${ver:-unknown}"
 }
@@ -63,11 +62,17 @@ read -r CAST_STATUS CAST_PATH <<<"$(check_bin cast | tr '|' ' ')"
 read -r FORGE_STATUS FORGE_PATH <<<"$(check_bin forge | tr '|' ' ')"
 read -r JQ_STATUS JQ_PATH <<<"$(check_bin jq | tr '|' ' ')"
 read -r PY_STATUS PY_PATH <<<"$(check_bin python3 | tr '|' ' ')"
+read -r ETHERSCAN_CLI_STATUS ETHERSCAN_CLI_PATH <<<"$(check_bin etherscan | tr '|' ' ')"
+read -r HALMOS_STATUS HALMOS_PATH <<<"$(check_bin halmos | tr '|' ' ')"
+read -r ECHIDNA_STATUS ECHIDNA_PATH <<<"$(check_bin echidna | tr '|' ' ')"
 
 CAST_VER="-"; [ "$CAST_STATUS" = "available" ] && CAST_VER=$(get_version cast)
 FORGE_VER="-"; [ "$FORGE_STATUS" = "available" ] && FORGE_VER=$(get_version forge)
 JQ_VER="-"; [ "$JQ_STATUS" = "available" ] && JQ_VER=$(get_version jq)
 PY_VER="-"; [ "$PY_STATUS" = "available" ] && PY_VER=$(get_version python3)
+ETHERSCAN_CLI_VER="-"; [ "$ETHERSCAN_CLI_STATUS" = "available" ] && ETHERSCAN_CLI_VER=$(get_version etherscan)
+HALMOS_VER="-"; [ "$HALMOS_STATUS" = "available" ] && HALMOS_VER=$(get_version halmos)
+ECHIDNA_VER="-"; [ "$ECHIDNA_STATUS" = "available" ] && ECHIDNA_VER=$(get_version echidna)
 
 TIMEOUT_IMPL="none"
 TIMEOUT_PATH="-"
@@ -83,11 +88,17 @@ HAS_CAST=false
 HAS_FORGE=false
 HAS_JQ=false
 HAS_PYTHON3=false
+HAS_ETHERSCAN_CLI=false
+HAS_HALMOS=false
+HAS_ECHIDNA=false
 
 [ "$CAST_STATUS" = "available" ] && HAS_CAST=true
 [ "$FORGE_STATUS" = "available" ] && HAS_FORGE=true
 [ "$JQ_STATUS" = "available" ] && HAS_JQ=true
 [ "$PY_STATUS" = "available" ] && HAS_PYTHON3=true
+[ "$ETHERSCAN_CLI_STATUS" = "available" ] && HAS_ETHERSCAN_CLI=true
+[ "$HALMOS_STATUS" = "available" ] && HAS_HALMOS=true
+[ "$ECHIDNA_STATUS" = "available" ] && HAS_ECHIDNA=true
 
 # --- ETHERSCAN_API_KEY detection with improved messaging ---
 ETHERSCAN_V2_STATUS="not configured"
@@ -135,13 +146,26 @@ cat >"$OUT_MD" <<EOF
 | python3 | $PY_STATUS | $PY_VER |
 | timeout | $TIMEOUT_IMPL | - |
 
+## Optional EVM tools
+
+| Tool | Status | Version | Resolved path |
+|------|--------|---------|---------------|
+| etherscan | $ETHERSCAN_CLI_STATUS | $ETHERSCAN_CLI_VER | $ETHERSCAN_CLI_PATH |
+| halmos | $HALMOS_STATUS | $HALMOS_VER | $HALMOS_PATH |
+| echidna | $ECHIDNA_STATUS | $ECHIDNA_VER | $ECHIDNA_PATH |
+
+Presence is an inventory result, not proof of authentication, compatible compiler/
+solver dependencies, or a working campaign. Unknown versions need investigation
+only if that tool is selected. These optional tools do not change helper mode.
+No installation, login, network query, or campaign is performed by this inventory.
+
 ## Explorer API
 
 | Config | Status |
 |--------|--------|
 | Etherscan V2 (unified) | $ETHERSCAN_V2_STATUS |
 
-\`ETHERSCAN_API_KEY\` enables Etherscan V2 API (single key, all chains). Chain-specific keys serve as fallback.
+\`ETHERSCAN_API_KEY\` enables Etherscan V2 API on supported chains, subject to plan access. Chain-specific keys serve as fallback. Key presence does not establish successful authentication. CLI saved credentials are not inspected here.
 
 ## Capabilities
 
@@ -157,6 +181,9 @@ HAS_FORGE=$HAS_FORGE
 HAS_JQ=$HAS_JQ
 HAS_PYTHON3=$HAS_PYTHON3
 HAS_ETHERSCAN_V2=$HAS_ETHERSCAN_V2
+HAS_ETHERSCAN_CLI=$HAS_ETHERSCAN_CLI
+HAS_HALMOS=$HAS_HALMOS
+HAS_ECHIDNA=$HAS_ECHIDNA
 TIMEOUT_IMPL=$TIMEOUT_IMPL
 EOF
 

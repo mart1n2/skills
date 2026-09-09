@@ -430,6 +430,109 @@ printf 'preflight-retention-marker\n' >> "$PREFLIGHT_WS/tool-resolution.md"
 bash "$SKILL_DIR/scripts/preflight.sh" "$PREFLIGHT_WS" >/dev/null
 grep -R -Fq 'preflight-retention-marker' "$PREFLIGHT_WS/tmp/preflight"
 
+# Optional tools only affect inventory, and a failing version probe must not
+# stop preflight or imply successful authentication/execution.
+OPTIONAL_BIN="$TMP_ROOT/optional-bin"
+mkdir -p "$OPTIONAL_BIN"
+cat > "$OPTIONAL_BIN/etherscan" <<'EOF'
+#!/usr/bin/env bash
+[ "$*" = "version" ] || exit 99
+printf 'etherscan fixture-version\n'
+EOF
+cat > "$OPTIONAL_BIN/halmos" <<'EOF'
+#!/usr/bin/env bash
+[ "$*" = "--version" ] || exit 99
+exit 13
+EOF
+cat > "$OPTIONAL_BIN/echidna" <<'EOF'
+#!/usr/bin/env bash
+[ "$*" = "--version" ] || exit 99
+printf 'Echidna fixture-version\n'
+EOF
+chmod +x "$OPTIONAL_BIN/etherscan" "$OPTIONAL_BIN/halmos" "$OPTIONAL_BIN/echidna"
+env PATH="$OPTIONAL_BIN:$PATH" /bin/bash "$SKILL_DIR/scripts/preflight.sh" \
+    "$TMP_ROOT/preflight-optional" >/dev/null
+(
+    source "$PREFLIGHT_WS/tool-resolution.env"
+    baseline_mode="$AUDIT_MODE"
+    source "$TMP_ROOT/preflight-optional/tool-resolution.env"
+    test "$HAS_ETHERSCAN_CLI" = true
+    test "$HAS_HALMOS" = true
+    test "$HAS_ECHIDNA" = true
+    test "$AUDIT_MODE" = "$baseline_mode"
+)
+grep -Fq '| halmos | available | unknown |' "$TMP_ROOT/preflight-optional/tool-resolution.md"
+
+# Source response retention is tested with real helper control flow but no
+# network access. Preserve full metadata, failed/partial responses and previous
+# generations, and reject HTTP errors even when their body looks successful.
+FETCH_API_BIN="$TMP_ROOT/fetch-api-bin"
+mkdir -p "$FETCH_API_BIN"
+cat > "$FETCH_API_BIN/curl" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+output=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in --output) output="$2"; shift ;; esac
+    shift
+done
+[ -n "$output" ] || exit 99
+case "$FETCH_TEST_CASE" in
+    partial)
+        printf '{"partial-response":' > "$output"
+        printf '000'
+        exit 28 ;;
+    apierror)
+        printf '{"status":"0","message":"NOTOK","result":"Invalid API Key"}' > "$output"
+        printf '200'
+        exit 0 ;;
+esac
+cat > "$output" <<'JSON'
+{"status":"1","message":"OK","result":[{"SourceCode":"pragma solidity ^0.8.20; contract RetainedSource {}","ContractName":"RetainedSource","ABI":"[]","CompilerVersion":"v0.8.20+commit.a1b79de6","OptimizationUsed":"1","Runs":"777","ConstructorArguments":"cafe","Proxy":"1","Implementation":"0x2222222222222222222222222222222222222222"}]}
+JSON
+if [ "$FETCH_TEST_CASE" = httpfail ]; then printf '503'; else printf '200'; fi
+EOF
+chmod +x "$FETCH_API_BIN/curl"
+FETCH_API_WS="$TMP_ROOT/fetch-api"
+for fetch_case in good good partial httpfail apierror; do
+    fetch_exit=0
+    env PATH="$FETCH_API_BIN:$PATH" FETCH_TEST_CASE="$fetch_case" \
+        ETHERSCAN_API_KEY="fixture-secret-must-not-be-recorded" \
+        GITHUB_URL="" GITHUB_REF="" EXPLORER_RETRY_COUNT=0 \
+        /bin/bash "$SKILL_DIR/scripts/fetch-source.sh" \
+        0x1111111111111111111111111111111111111111 ethereum \
+        "$FETCH_API_WS/contracts" > "$TMP_ROOT/fetch-api-$fetch_case.log" 2>&1 || fetch_exit=$?
+    if [ "$fetch_case" = good ]; then test "$fetch_exit" = 0; else test "$fetch_exit" != 0; fi
+    grep -R -Fq 'contract RetainedSource' "$FETCH_API_WS/contracts"
+done
+python3 - "$FETCH_API_WS" <<'PY'
+import json
+import sys
+from pathlib import Path
+ws = Path(sys.argv[1])
+responses = list((ws / 'tmp' / 'fetch-source').glob('*/request.*/response-*.json'))
+assert len(responses) >= 5, 'response evidence was lost across refreshes/failures'
+complete = []
+for path in responses:
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        continue
+    if data.get('status') == '1':
+        complete.append(data['result'][0])
+assert len(complete) >= 2
+assert all(row['Runs'] == '777' and row['ABI'] == '[]' and
+           row['ConstructorArguments'] == 'cafe' and row['Proxy'] == '1' and
+           row['Implementation'].startswith('0x2222') for row in complete)
+metadata = '\n'.join(p.read_text() for p in ws.glob('tmp/fetch-source/*/request.*/request-*.txt'))
+assert 'curl_exit=28' in metadata and 'http_status=503' in metadata
+assert 'chain_id=1' in metadata and 'provider=etherscan-compatible' in metadata
+assert any(p.read_text() == '{"partial-response":' for p in responses)
+assert any('Invalid API Key' in p.read_text() for p in responses)
+assert not any('fixture-secret-must-not-be-recorded' in p.read_text()
+               for p in ws.rglob('*') if p.is_file())
+PY
+
 ONCHAIN_WS="$TMP_ROOT/onchain-retention"
 mkdir -p "$ONCHAIN_WS/evidence"
 env PATH=/usr/bin:/bin /bin/bash "$SKILL_DIR/scripts/collect-onchain-data.sh" \

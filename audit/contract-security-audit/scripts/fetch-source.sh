@@ -26,14 +26,23 @@ AUDIT_USER_AGENT="${AUDIT_USER_AGENT:-contract-security-audit-skill/1.0}"
 
 curl_json() {
     local url="$1"
+    local provider="$2"
+    local address="$3"
     local max_retries=3
     local attempt=0
     local backoff=1
-    local response=""
     local http_code=""
+    local curl_exit=0
+    local request_dir endpoint
+    # This fresh, retained directory is outside contracts/: target source cannot
+    # overwrite its acquisition evidence. Never record the credential-bearing URL.
+    request_dir="$(umask 077; mktemp -d "$FETCH_RUN_DIR/request.XXXXXX")" || return 1
+    endpoint="$(redact_url_credentials "${url%%\?*}")"
 
     while [ "$attempt" -lt "$max_retries" ]; do
-        response=$(curl \
+        local body="$request_dir/response-$attempt.json"
+        curl_exit=0
+        http_code=$(curl \
             --silent \
             --show-error \
             --location \
@@ -43,13 +52,25 @@ curl_json() {
             --retry-delay 1 \
             --retry-all-errors \
             -H "User-Agent: $AUDIT_USER_AGENT" \
-            -w '\n%{http_code}' \
-            "$url" 2>/dev/null) || { echo ""; return; }
+            --output "$body" \
+            -w '%{http_code}' \
+            "$url" 2>/dev/null) || curl_exit=$?
+        # A transport failure may still have produced a partial response.
+        [ -f "$body" ] || { : > "$body"; } || return 1
+        {
+            printf 'observed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'provider=%s\nendpoint=%s\nmethod=GET\n' "$provider" "$endpoint"
+            printf 'chain=%s\nchain_id=%s\naddress=%s\n' "$CHAIN_NORMALIZED" "${CHAIN_ID:-unknown}" "$address"
+            printf 'operation=verified-source\nattempt=%s\n' "$attempt"
+            printf 'http_status=%s\ncurl_exit=%s\n' "$http_code" "$curl_exit"
+            printf 'curl_retry_limit=%s\nmax_time_seconds=%s\n' "$EXPLORER_RETRY_COUNT" "$EXPLORER_MAX_TIME"
+            printf 'response=response-%s.json\n' "$attempt"
+        } > "$request_dir/request-$attempt.txt" || return 1
+        if [ "$curl_exit" -ne 0 ]; then
+            return 1
+        fi
 
-        http_code="${response##*$'\n'}"
-        response="${response%$'\n'*}"
-
-        if [ "$http_code" = "429" ] || echo "$response" | grep -qi "rate limit" 2>/dev/null; then
+        if [ "$http_code" = "429" ] || grep -qi "rate limit" "$body" 2>/dev/null; then
             attempt=$((attempt + 1))
             if [ "$attempt" -lt "$max_retries" ]; then
                 echo "Rate limited, backing off ${backoff}s (attempt $attempt/$max_retries)..." >&2
@@ -58,9 +79,12 @@ curl_json() {
                 continue
             fi
         fi
-        break
+        # HTTP errors and API-envelope errors are distinct. Callers validate the
+        # provider envelope only after successful HTTP delivery.
+        case "$http_code" in 2??) cat "$body"; return $? ;; esac
+        return 1
     done
-    echo "$response"
+    return 1
 }
 
 HAS_JQ=0
@@ -159,7 +183,7 @@ fetch_blockscout_contract() {
 
     local url="${api_url%/}/api/v2/smart-contracts/${addr}"
     local response
-    response="$(curl_json "$url")"
+    response="$(curl_json "$url" blockscout "$addr")" || return 1
 
     if [ -z "$response" ]; then
         echo "  $addr ... EMPTY RESPONSE (blockscout)"
@@ -442,7 +466,7 @@ if written == 0:
 
 safe_filename() {
     local name="$1"
-    echo "$name" | tr -cs 'A-Za-z0-9._-' '_'
+    printf '%s' "$name" | tr -cs 'A-Za-z0-9._-' '_'
 }
 
 redact_url_credentials() {
@@ -487,7 +511,7 @@ fetch_single_contract() {
     fi
 
     local response
-    response="$(curl_json "$url")"
+    response="$(curl_json "$url" etherscan-compatible "$addr")" || return 1
 
     if [ -z "$response" ]; then
         echo "  $addr ... EMPTY RESPONSE"
@@ -544,26 +568,10 @@ fetch_sourcify_contract() {
 
     local url="https://sourcify.dev/server/v2/contract/${chain_id}/${addr}?fields=all"
     local response
-    response=$(curl \
-        --silent \
-        --show-error \
-        --location \
-        --connect-timeout 10 \
-        --max-time "$EXPLORER_MAX_TIME" \
-        --retry "$EXPLORER_RETRY_COUNT" \
-        --retry-delay 1 \
-        --retry-all-errors \
-        -H "User-Agent: $AUDIT_USER_AGENT" \
-        -w '\n%{http_code}' \
-        "$url" 2>/dev/null) || { echo "  $addr ... SOURCIFY CONNECTION FAILED"; return 1; }
-
-    local http_code="${response##*$'\n'}"
-    response="${response%$'\n'*}"
-
-    if [ "$http_code" != "200" ]; then
-        echo "  $addr ... SOURCIFY NOT FOUND (HTTP $http_code)"
+    response="$(curl_json "$url" sourcify "$addr")" || {
+        echo "  $addr ... SOURCIFY RETRIEVAL FAILED (see retained request evidence)"
         return 1
-    fi
+    }
 
     if [ -z "$response" ]; then
         echo "  $addr ... SOURCIFY EMPTY RESPONSE"

@@ -247,6 +247,12 @@ format.
 The manifest is the handoff boundary. A validator should not need an oral
 explanation or hidden local state.
 
+For fuzzing/symbolic evidence, retain the harness, assumptions, mocks, bounds,
+effective tool/solver configuration and actual counterexample or campaign result
+(including corpora/state caches when used). Check non-vacuity. No counterexample
+within a budget, completed proof over a stated domain and incomplete execution
+are different outcomes. See `evm-tools.md` for optional EVM tool selection.
+
 ## False-Positive Gates
 
 Apply every gate before independent validation. The gates constrain claims, not
