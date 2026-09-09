@@ -129,7 +129,12 @@ is about proof, and it does not move.
 
 ## Candidate Schema
 
-Before hunting begins, every candidate row and detail block must contain:
+Before registering a candidate, complete the fields below honestly. Preliminary
+lead exploration does not require a candidate record; use `search.md` under the
+lead policy in `goal-directed-search.md`. A proposed mechanism and verification
+plan may still be unproven: label their open assumptions instead of claiming
+evidence is complete. `REPRODUCED`, not `PROPOSED`, requires completed producer
+verification.
 
 - **Candidate ID:** stable `C-NN` identifier.
 - **Target binding:** the canonical comma-separated set of target artifact IDs the
@@ -192,13 +197,13 @@ Roles describe the work an audit needs; they do not require a fixed scheduler:
   using another sound method, or both; deduplicates it; challenges
   scope/reachability/impact/falsification; and recommends a disposition.
 
-Claim ownership by creating one `triage/candidates/C-NN.md` file before
-expensive verification work, then run
-`bash "$SKILL_DIR/scripts/triage-index.sh" "$WORKSPACE"` to rebuild the shared
-index. Per-candidate files are the source of truth; `triage/candidates.md` is a
-deterministic generated view and must not be hand-edited. Agents may operate in
-parallel, but they share the generated index and known-issues ledger so several
-agents do not rediscover the same root cause.
+For parallel work, the main auditor allocates candidate IDs and task ownership
+before dispatch. Each worker writes only its assigned evidence/task artifacts;
+the main auditor reconciles candidate updates, `findings.md`, shared working
+notes, coverage, and the known-issues ledger, then rebuilds the index with
+`bash "$SKILL_DIR/scripts/triage-index.sh" "$WORKSPACE"`. Per-candidate files are
+authoritative; the index is a generated view, never a lock or a hand-edited work
+queue. These are coordination instructions, not filesystem isolation guarantees.
 
 ## Verification Evidence Contract
 
@@ -345,6 +350,41 @@ not.
 
 ## Independent Validation Protocol
 
+Schedule this review during report preparation. During ordinary audit search,
+complete producer packages stay `REPRODUCED` and other goals continue; pending
+independent review is not a reason to halt discovery. Report preparation validates
+the selected packages, records passing findings, and then obtains human sign-off.
+
+For agent-assisted review, an isolated validator starts with the candidate,
+target lock, verification manifest, and primary artifacts. Do not carry over the
+producer's conversation or unrecorded assumptions. A new run ID or different
+provider alone does not establish independent validation: the reviewer must
+perform and record the checks below. Re-reviewing a rigorous source/formal proof
+is valid; neither executable reruns nor a different provider are universal
+requirements. If no separate reviewer is available, preserve `REPRODUCED` and
+record the pending validation rather than self-promoting the candidate.
+
+An additional agent is an eligible separate reviewer; a different model/provider
+is optional, and agent agreement is not proof. Give it the bounded claim, exact
+target and primary artifacts, known counterevidence, and output location, without
+the producer's conversation or a requested verdict. The reviewer may write its
+own PoC/control, inspect source or bytecode, query pinned on-chain state and
+transactions, replay a fork, or use another sound method. Use read-only chain
+access or isolated local execution by default; review does not authorize live
+transactions, secret access, or new external side effects.
+
+Assign a separate output such as `evidence/validation/C-NN/` and
+`triage/validation/C-NN.md`; do not overwrite producer artifacts. The main auditor
+checks the returned evidence and reconciles shared records. No standing team or
+majority vote is required: one separate reviewer is the normal report-stage
+starting point, with extra review only for a specific unresolved risk.
+
+If the reviewer materially changes the claim, target, actor assumptions, or
+impact, treat that as revised producer work and independently review the revised
+claim before acceptance. A supplementary PoC for an unchanged claim can itself
+be the independent check; writing one does not automatically force another
+reviewer. A reviewer cannot invent their own new finding and self-validate it.
+
 The validator starts from the registry, target lock, manifest, and immutable
 artifacts—not the producer's unstated live context:
 
@@ -365,7 +405,9 @@ artifacts—not the producer's unstated live context:
    `OUT-OF-SCOPE`, or `INCONCLUSIVE`.
 
 Disagreement is useful triage evidence. Record both analyses and the precise
-unresolved fact; do not average conclusions.
+unresolved fact; do not average conclusions. Try a discriminating evidence check
+first. Escalate a remaining consequential conflict under the anomalous-lead policy
+in `goal-directed-search.md`; a human opinion cannot waive missing evidence.
 
 ## Recording a Finding
 
@@ -392,7 +434,11 @@ auditor records the acceptance decision, final severity, and disclosure decision
 for each finding (`Human decision` in `findings.md`, `Human decision / acceptor /
 date` in the validation record, candidate status `HUMAN-ACCEPTED`). This is where
 human judgment belongs: what gets released, under which severity label, to whom.
-It reviews the evidence; it does not substitute for it.
+It reviews the evidence; it does not substitute for it. Human review focuses on
+these final findings and selected anomalous leads, not every search action,
+candidate, failed test, or agent disposition. The main auditor can transcribe an
+explicit human decision into the existing canonical fields; the human need not
+manually maintain multiple files. Never infer acceptance from silence.
 
 Run the checker at each of the two gates:
 

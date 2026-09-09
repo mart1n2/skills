@@ -359,6 +359,10 @@ EOF
 > The validator must differ from the producer and independently challenge the
 > claim against pinned artifacts. They may reproduce the producer's procedure,
 > use a different sound method, or do both; record the method selected.
+> An additional agent may write a PoC, query pinned on-chain state, or use another
+> sound check. Different model/session identity alone is not independent review.
+> Keep reviewer evidence separate from producer artifacts. Human decisions are
+> added after review, for the final findings, not for routine verification steps.
 
 - Candidate: C-NN
 - Target artifact IDs: T-NN

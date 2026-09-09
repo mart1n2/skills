@@ -1,10 +1,10 @@
 ---
 name: contract-security-audit
 description: >
-  Audit production smart contracts with unrestricted discovery and validation methods, explicit safety/economic invariants, evidence-bound candidates, independent triage, coverage closure, and a human-signed-off report. Use for smart contract security audits, vulnerability hunting, exploit/PoC verification, protocol economic-design review, or audit-report generation. Production chain references and optional harnesses cover EVM (Solidity/Vyper), Solana (Rust/Anchor), and Sui (Move); Aptos notes are comparative only, not production coverage. Compatible with Claude, Codex, and Hermes skill discovery. Bundled Bash scripts support macOS (including invocation from zsh) and Linux with Bash 3.2+.
+  Audit production smart contracts using a lightweight blackboard and goal-directed state-space search, unrestricted discovery and validation methods, evidence-bound candidates, independent triage, and human-signed-off reports. Use for smart contract audits, vulnerability hunting, exploit/PoC verification, protocol economic-design review, or audit reports. Native references cover EVM, Solana, and Sui; Aptos is comparative only. Compatible with Claude, Codex, and Hermes; bundled scripts support macOS/Linux Bash 3.2+.
 ---
 
-# Contract Security Audit (Method-Neutral Discovery + Evidence Triage)
+# Contract Security Audit (Goal-Directed Search + Evidence Triage)
 
 Methodology-driven source audit with independently reviewable evidence. Discovery and validation methods are deliberately unrestricted; the skill constrains what may be claimed, not how an agent must discover or prove it. The architecture is four layers:
 
@@ -17,6 +17,55 @@ Methodology-driven source audit with independently reviewable evidence. Discover
   sources before citing incident facts.
 
 This skill is self-contained — all scripts, PoC templates (EVM/Solana/Sui), and chain configs ship inside the skill directory.
+
+## Working Model: Blackboard + Goal-Directed Search
+
+For audit discovery, use [references/goal-directed-search.md](references/goal-directed-search.md)
+as the default reasoning loop. Select one open security or proof obligation,
+choose the most informative next action, retain the result, and update what is
+known and what remains open. Tool choice stays unrestricted within the task's
+permissions. A focused verification or report-only request consumes the relevant
+obligations; it does not trigger a new full audit.
+
+Independent validation is deferred to report preparation. During ordinary search,
+build and falsify evidence, record complete producer packages as `REPRODUCED`,
+and continue other goals without waiting for a validator. Before reporting,
+independently review the selected candidates, admit passing findings under
+`triage.md`, then obtain human sign-off. Report preparation is the trigger for
+that separate review, not every successful search step. An additional agent may
+perform this review: it must independently inspect and challenge the primary
+evidence, not just endorse the producer or change model/session identity. It may
+write a PoC, inspect pinned on-chain state, derive a proof, or combine methods.
+See `triage.md` for the handoff and write-ownership rules.
+
+Human attention goes to the final findings (including severity and disclosure)
+and selected anomalous leads that need intent, risk, or unresolved-conflict
+judgment. Agents handle ordinary search, evidence work, and dispositions without
+per-step human approval. Keep evidence-anchored anomalies in `search.md` using
+the lead policy in `goal-directed-search.md`; they are neither findings nor an
+automatic reason to interrupt the user. Missing authority still requires approval.
+
+The blackboard is the linked engagement record: `scope.md`, `target-lock.md`,
+model artifacts, per-candidate files, retained evidence, and `coverage.md`.
+Use one small `search.md` for active goals, partial paths, and the frontier when
+work spans multiple steps; adapt [templates/search.md](templates/search.md).
+Existing equivalent working notes are sufficient. Link canonical records rather
+than copying their status or evidence into a second registry. No database, graph
+service or Pi runtime is required. Discovery can run with one agent; report-stage
+independent validation requires a separate reviewer, which may be an extra agent.
+
+Search backward from a violated property toward necessary conditions, and forward
+from real actors and observations toward consequences. Meeting at a shared state
+location schedules a semantic check; it establishes neither reachability nor a
+vulnerability. Keep actor, mapping key, storage context, time, and constraints
+intact. Economic and liveness goals remain valid without a call-chain-shaped model.
+
+Before accepting a reasoning step, check its target binding, input references,
+changed obligations, and retained evidence. Record corrections and dependencies;
+do not silently replace a relied-on premise. In this skill-only mode the main
+auditor performs that control role; these instructions are not a mechanically
+enforced Controller. Findings still pass `triage.md`, independent validation, and
+the separate report sign-off gate.
 
 ## Runtime Compatibility
 
@@ -88,9 +137,9 @@ routes; a catalog match is precedent, never proof.
 | 5. Register candidates | `triage/candidates.md` + one schema-complete `triage/candidates/C-NN.md` per material lead, regardless of discovery method | recon |
 | 6. Challenge candidates | candidate files enriched with reachability, consequence, falsification, and scope/state evidence appropriate to each claim | hunter |
 | 7. Explore residual surfaces | optional A/B/F/G/H/X/J lenses or any other methods; append material leads under the same candidate contract | recon/hunter |
-| 8. Verify + triage | evidence artifacts, verification manifests, independent validation, dedup | hunter + independent validator |
-| 9. Severity calibration (I) | independently validated candidates recorded in `findings.md`; severity calibrated under the asset-loss gate | main + human auditor |
-| 10. Report + sign-off | human sign-off on every recorded finding, then one internal audit report in `audit-workspace/{protocol}/reports/{protocol}-{chain}-{date}.md`, built from findings and retained workspace evidence | human + main |
+| 8. Verify + producer triage | evidence artifacts, manifests, falsification, dedup; complete producer packages remain `REPRODUCED` | hunter/main |
+| 9. Severity calibration (I) | provisional candidate impact assessment; final finding calibration after report-preparation review | main |
+| 10. Report preparation + sign-off | independent validation of selected candidates, record passing findings, human sign-off, then internal report under `reports/` | independent validator + human + main |
 
 Track closure throughout in `audit-workspace/{protocol}/coverage.md`; an unresolved row is a limitation, never a pass.
 
@@ -142,8 +191,9 @@ a fix, exposure state, client decision, or retest result during migration.
 
 > **Loop, don't pipeline.** Failed falsification or incomplete evidence sends a candidate back to discovery and modeling. The phase numbers are stable artifacts; their order is iteration, not a one-pass funnel.
 
-**Reference files (read at start — always the spine and triage contract, plus the playbook + metrics for the target chain):**
+**Reference files (load for the work being performed):**
 
+- `references/goal-directed-search.md` — default blackboard, frontier, bidirectional search, semantic meeting, and resume/closure rules. Read for discovery, gap-filling, or resuming an audit; unnecessary for a report-only formatting change.
 - `references/methodology.md` — first principles, truth-gate rationale, and optional P / A–J lenses (chain-agnostic). Always load for the shared evidence contract; use or replace its techniques freely.
 - `references/triage.md` — candidate lifecycle, role boundaries, verification-evidence contract, false-positive gates, independent validation, dedup, metrics, and the report-stage human sign-off. Always load.
 - `references/playbook-solana.md` / `references/playbook-sui.md` — chain-native attack surfaces and optional hunting/verification techniques. Load for Solana/Sui audits. (EVM's playbook is inline in the spine.)
@@ -172,6 +222,7 @@ a fix, exposure state, client decision, or retest result during migration.
 **Bundled templates:**
 
 - `templates/audit-report.md` — default internal reference report with candidate provenance, evidence, triage closure, coverage, findings, and limitations
+- `templates/search.md` — compact active-goal and frontier scaffold; links existing authoritative artifacts without duplicating them
 - `templates/external-audit-report.md` — optional professional client/public report, generated only on explicit request; includes exact scope/baseline, disclosure controls, remediation status, limitations, and release gate
 - `templates/simulation/` — **EVM** Foundry fork PoCs: `BaseTest.sol` (fork setup, labels, deal helpers), `FlashLoanAttack.t.sol`, `OracleManipulation.t.sol`, `ReentrancyAttack.t.sol`, `ShareInflation.t.sol`, `GovernanceAttack.t.sol`
 - `templates/solana/` — **Solana** PoCs: `litesvm_harness.rs` (base), `exploit_signer_and_substitution.rs`, `fork_replay.sh` (fail-closed live-clone scaffold; adapt to a coherent snapshot)
@@ -457,7 +508,15 @@ The **Hypothesis Ladder** is one optional discovery accelerator. It covers ident
 - **Solana:** the native ladder in `references/playbook-solana.md § 2` (signer/authority binding, account-owner/discriminator validation, PDA/bump, arbitrary CPI, oracle, atomic-tx composition — mapped to `[SOL-Gn]` gates and SlowMist items).
 - **Sui:** the native ladder in `references/playbook-sui.md § 2` (capability/visibility, object-ownership mode & abilities, shift/precision math, Coin/Balance lifecycle, hot-potato/oracle, init/upgrade, PTB composition — mapped to `[SUI-Gn]` gates).
 
-The categories map 1:1 across chains; the questions are native. For every material lead—regardless of how it was found—create a schema-complete `$WORKSPACE/triage/candidates/C-NN.md`; do not write it to `findings.md`. Record the exact `T-NN` artifact-ID set (plus the target-lock SHA-256 if the engagement requires digests), target, attacker/preconditions, mechanism and reachability evidence, claimed impact, relevant falsification, dedup key, provenance, and lifecycle status required by `references/triage.md`.
+The categories map 1:1 across chains; the questions are native. Promote a lead to
+`$WORKSPACE/triage/candidates/C-NN.md` when it supports a concrete, testable claim
+and the candidate schema can be completed honestly. Preliminary exploration is
+allowed before promotion; keep unresolved anomalies in `search.md` without
+inventing an attacker path or impact to fill fields. Material unresolved security
+questions also belong in `coverage.md`, even if no candidate can yet be formed.
+For a candidate, record the exact `T-NN` artifact-ID set, target, actor and
+preconditions, mechanism, claimed impact, falsification plan, dedup key,
+provenance, and lifecycle status required by `references/triage.md`.
 
 Per-candidate files are authoritative. After creating or changing one, rebuild
 the deterministic multi-agent index instead of editing it directly:
@@ -539,11 +598,19 @@ Use any available state/write/call/dependency evidence for function and protocol
 
 Interrogate intended behavior adversarially: is the *intended* flow itself exploitable by a rational actor? `intent.md`, specifications, source, transaction data, or an economic model may supply the intent evidence. Re-derive fee/reward/interest/price math; check free-rider/JIT, time-boundary incentives, liquidation/penalty economics, fairness across user classes, griefing economics, and retroactive/self-dealing parameter power. These findings often have *no code defect* — the code is correct and the design is the bug.
 
-Append all F/G/H/X/J leads to the candidate registry using the same candidate contract; do not promote them directly to findings. The pattern library may accelerate verification but is never required.
+Route F/G/H/X/J leads through the same lead-to-candidate boundary in Phase 5;
+do not promote them directly to findings. The pattern library may accelerate
+verification but is never required.
 
 ---
 
 ## Phase 8: Evidence and Triage (Critical Gate)
+
+During search, perform the producer evidence work below through `REPRODUCED`.
+Keep independent validation pending until report preparation (Phase 10); its
+absence does not block further discovery, falsification, or coverage work.
+The acceptance gates below define what may later enter `findings.md`, not a
+requirement to launch a validator after each producer result.
 
 For every candidate intended for acceptance, produce independently reviewable evidence against the real scoped target. Any sound method is allowed: executable PoC, test, fuzz counterexample, invariant violation, symbolic trace, formal proof, transaction/trace analysis, faithful simulation/replay, differential proof, source-level proof, or a combination. Pure style or documentation notes belong in observations, not security findings.
 
@@ -566,6 +633,10 @@ Gates 1–7 admit the candidate to `findings.md`; no human decision is required 
 For multi-step candidates, preserve the full sequence and state dependencies. A stateful harness, model checker, symbolic trace, formal transition proof, historical trace, or another faithful technique may establish it. An LLM-proposed sequence by itself is only a lead.
 
 Run the checker at the gate you are actually at:
+
+The final-mode checks below are closure/report checks. During an ongoing search,
+pending `REPRODUCED` packages are expected; do not use a final checker failure on
+pending review as a reason to stop other audit work or trigger early validation.
 
 ```bash
 # Findings gate — evidence, validation, closure. Digests optional.
@@ -686,6 +757,9 @@ constrain mode selection:
 
 ## Phase 9: Severity Calibration (Post-Pass I)
 
+During search, use these axes for provisional candidate severity/materiality.
+Finalize finding severity after independent review during report preparation.
+
 For every independently validated candidate, calibrate severity along the 5 axes from `methodology.md` § I:
 
 - Blast radius
@@ -720,6 +794,16 @@ clean-verdict gate.
 ---
 
 ## Phase 10: Human Sign-off + Internal Reference Report
+
+This is the default trigger for independent validation. Review the retained
+`REPRODUCED` packages with a separate reviewer using Phase 8 and `triage.md`;
+record passing findings, and return disputed claims to evidence work or explicit
+limitations. An additional agent can be the reviewer under the independent
+validation protocol; a human need not perform routine reproduction. Present the
+human with the final findings and only the unresolved anomalies meeting the
+human-review criteria in `goal-directed-search.md`. Do not fabricate validation
+if a reviewer is unavailable. Ordinary
+search may continue; issuance of the affected report waits for this review.
 
 Reporting is the human gate. Before building any report, a human auditor records
 the acceptance decision, final severity, and disclosure decision for every recorded
@@ -816,7 +900,7 @@ exploitation, follow responsible disclosure:
 ## Workflow Summary (Single-Line)
 
 ```
-[optional helper preflight] → pin scope + target lock → [optional orient/model artifacts] → discover by any method → register candidates → bind target/evidence → independent triage → record finding → calibrate (asset-loss gate) → closure gate → human sign-off → report
+[optional helper preflight] → pin scope + target lock → blackboard goal/frontier loop (any sound method) → register candidates → bind target/evidence → independent triage → record finding → calibrate (asset-loss gate) → closure gate → human sign-off → report
 ```
 
 Every recorded finding rests on independently reviewable claim-bound evidence and independent validation; every reported finding additionally carries a human decision. Material `INCONCLUSIVE` candidates and incomplete coverage remain explicit limitations and prevent a `NO-MATERIAL-FINDINGS` verdict.
@@ -833,6 +917,7 @@ contract-security-audit/
 │   ├── chains.json                       # Chain RPC + explorer configs
 │   └── compiler-cves.json                # Compiler advisory database
 ├── references/
+│   ├── goal-directed-search.md            # Blackboard + goal/frontier search and semantic meeting
 │   ├── methodology.md                    # Chain-agnostic spine (O/P, A–J lenses, severity) + EVM ladder & PoC library
 │   ├── triage.md                         # Candidate contract, false-positive gates, independent validation, report sign-off
 │   ├── playbook-solana.md                # Solana semantics + optional prompts/verification examples
@@ -841,6 +926,7 @@ contract-security-audit/
 │   ├── metrics-solana.md                 # Solana catalog — SlowMist-derived (gates, vuln→fix, incidents)
 │   └── metrics-sui.md                    # Sui/Move catalog — SlowMist-derived (gates, vuln→fix, incidents)
 ├── templates/
+│   ├── search.md                          # Lightweight goal/frontier working record
 │   ├── audit-report.md                   # Default internal reference report
 │   ├── external-audit-report.md          # Optional explicit-request professional report
 │   ├── simulation/                       # EVM Foundry fork PoCs

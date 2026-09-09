@@ -12,17 +12,18 @@
 ## Contents
 
 - [First Principles](#first-principles)
+- [Goal-directed search](goal-directed-search.md)
 - [Lens Overview](#lens-overview)
 - [Methodology O: Orientation](#methodology-o-orientation-pre-pass)
 - [Methodology P: Reachability Atlas](#methodology-p-reachability-atlas-optional-coverage-scaffold)
-- [Hypothesis Ladder](#the-hypothesis-ladder--attacker-questions-to-ask-of-every-atlas-entry)
+- [Hypothesis Ladder](#optional-hypothesis-ladder--adversarial-prompts)
 - [Methodology A: Bypass](#methodology-a-bypass)
 - [Methodology B: Boundary Cases](#methodology-b-boundary-cases)
 - [Methodology Optimizations C-H, X, J](#methodology-optimizations)
 - [Optional PoC Pattern Library](#optional-poc-pattern-library--from-hypothesis-to-receipt)
 - [Triage Gate](#triage-gate--from-evidence-to-finding)
 - [Severity Calibration](#i-severity-calibration-post-pass)
-- [Optimized Workflow](#optimized-workflow)
+- [Example Artifact Workflow](#example-artifact-workflow-discovery-methods-unrestricted)
 - [Limits](#limits)
 
 ---
@@ -127,6 +128,13 @@ This document is the **chain-agnostic spine** — the axioms, lenses, optional a
 ---
 
 ## Lens Overview
+
+Use [goal-directed-search.md](goal-directed-search.md) to select the next useful
+application of these lenses from the current blackboard and open obligations.
+Backward regression, forward expansion, and semantic meeting organize reasoning;
+they do not require a fixed pipeline or exhaustive enumeration. Keep exploration,
+candidate proof, and coverage closure separate. The linked workspace artifacts
+remain authoritative; `search.md` is a compact agenda and partial-solution record.
 
 Metrics tell you *what patterns are known to be dangerous*. Methodologies tell you *how to find new ones*. The audit process has four layers:
 
@@ -1209,6 +1217,11 @@ Never lower severity solely because verification was blocked. Lower it only when
 ---
 
 ## Triage Gate — From Evidence to Finding
+
+Default timing: producer evidence work runs during search; separate validation
+is batched at report preparation. A complete producer package remains
+`REPRODUCED` while other goals continue. The gates below govern later admission
+to findings, not when to interrupt discovery for another reviewer.
 
 Before promotion, apply the full contract in `triage.md`. The method is open; the
 claim obligations are not:
