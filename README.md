@@ -1,13 +1,14 @@
 # Skills
 
-Two self-contained agent skills for on-chain security work — one **proactive** (audit a deployment before it breaks), one **reactive** (reconstruct an exploit after it did).
+Agent skills for on-chain work: one for **building** contracts that hold funds, one **proactive** (audit a deployment before it breaks), one **reactive** (reconstruct an exploit after it did).
 
-Each skill is a directory of Markdown instructions plus its own scripts, chain config, PoC harnesses, and report templates. Drop one into your agent's skills directory and it works — no shared runtime, no cross-skill dependencies.
+Each skill is a directory of Markdown instructions plus its own scripts, chain config, PoC harnesses, and report templates. Drop one into your agent's skills directory and it works — no shared runtime. The one cross-skill link: `solidity-dev-loop`'s audit-lite pass loads parts of `contract-security-audit`, so install both.
 
 | Skill | Question it answers | Chains |
 | ----- | ------------------- | ------ |
 | [`contract-security-audit`](audit/contract-security-audit/SKILL.md) | "Can this be exploited?" | EVM, Solana, Sui |
 | [`security-incident-analysis`](analysis/security-incident-analysis/SKILL.md) | "It *was* exploited — how, how much, where did the funds go, is it still bleeding?" | EVM (Ethereum + L2s) |
+| [`solidity-dev-loop`](development/solidity-dev-loop/SKILL.md) | "How do we design, test and ship this contract so funds can never be stolen or locked?" | EVM (Solidity, Foundry) |
 
 ---
 
@@ -47,6 +48,22 @@ Phases are artifacts, not a pipeline: a failed replay sends you back to root cau
 
 **Bundled** — `scripts/` (preflight with archive-RPC probing, intake, drain-block finder, loss reconciliation), `references/` (incident methodology, vulnerability taxonomy), `templates/poc/ForkReplay.t.sol`, `templates/incident-report.md`, `config/chains.json`.
 
+## solidity-dev-loop
+
+A development loop for production Solidity that holds user funds, distilled from two real projects (a Morpho Vault V2 adapter system and a Pendle-PT lending pool) and backtested against their incident history. One invariant governs every step: **user funds can never be seized or permanently locked**; bounded DoS with a recovery path is acceptable.
+
+**Flow** — five phases, each with an exit gate:
+
+1. **Spec and design** — requirement IDs, role matrix, deferred scope, reuse before building, third-party assumptions verified on a fork *before* the design freezes, a formula table mapped to OpenZeppelin / Solady math, valuation at what the exit actually returns, a per-actor economic review, an upgrade model chosen from the business, a third-party dependency table, exit liquidity measured across shared routes, and an adversary model.
+2. **Acceptance tests first** — unit, fuzz, invariant (with adversarial handlers), fork tests against every real dependency running in CI, regression, and Halmos.
+3. **Whole slices** — one complete vertical slice per PR; arithmetic only through libraries.
+4. **Deploy and operations** — scripts, verifiers and runbooks are in scope and audited.
+5. **Verify** — **audit-lite**: a light profile of `contract-security-audit` run by independent subagents (auditor, validator, retester, each with a fresh context that never sees the implementer's reasoning). Diff scope per PR, full scope at milestones; PoCs land in `test/` as regression tests; only Critical/High findings stop for a human.
+
+Findings found late are sent back to the layer they came from: a design-layer problem changes the spec first, not just the code.
+
+**Bundled** — `references/templates.md` (requirement, deferred-scope, formula, upgrade-model, dependency, exit-liquidity, invariant tables), `references/checklists.md` (adversary, valuation and degraded-mode, exit liquidity, deploy and ops), `references/audit-lite.md` (roles, scope, what to load from `contract-security-audit`, severity gate, feedback format).
+
 ---
 
 ## Install
@@ -60,6 +77,7 @@ cd skills
 # Claude
 cp -R audit/contract-security-audit      "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/"
 cp -R analysis/security-incident-analysis "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/"
+cp -R development/solidity-dev-loop       "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/"
 
 # Codex
 cp -R audit/contract-security-audit "${CODEX_HOME:-$HOME/.codex}/skills/"
@@ -108,6 +126,7 @@ Ask your agent for the work; skill discovery handles the rest.
 ```
 Audit the Foo vault at 0xabc… on Base.
 Analyze the exploit in tx 0xdef… on Arbitrum.
+Design an adapter that holds GMX GM tokens behind our Morpho vault, and the test plan.
 ```
 
 ## Test
