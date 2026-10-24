@@ -58,7 +58,7 @@ A development loop for production Solidity that holds user funds, distilled from
 2. **Acceptance tests first** — unit, fuzz, invariant (with adversarial handlers), fork tests against every real dependency running in CI, regression, and Halmos.
 3. **Whole slices** — one complete vertical slice per PR; arithmetic only through libraries.
 4. **Deploy and operations** — scripts, verifiers and runbooks are in scope and audited.
-5. **Verify** — **audit-lite**: a light profile of `contract-security-audit` run by independent subagents (auditor, validator, retester, each with a fresh context that never sees the implementer's reasoning). Diff scope per PR, full scope at milestones; PoCs land in `test/` as regression tests; only Critical/High findings stop for a human.
+5. **Verify** — **audit-lite**: a light profile of `contract-security-audit` run by independent subagents (auditor, validator, retester, each with a fresh context that never sees the implementer's reasoning). Diff scope per PR with the same model, full scope at milestones with two auditors on different models that cross-validate; PoCs land in `test/` as regression tests; only Critical/High findings stop for a human.
 
 Findings found late are sent back to the layer they came from: a design-layer problem changes the spec first, not just the code.
 

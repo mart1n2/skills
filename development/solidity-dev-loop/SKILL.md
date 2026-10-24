@@ -83,7 +83,7 @@ Deploy scripts, verifiers, runbooks and bots are part of the system and in audit
 
 1. **Self-check by requirement**, not by line coverage.
 2. **Run Halmos** on the custom core properties.
-3. **Independent audit with fresh context, by separate subagents**: follow `references/audit-lite.md` (an auditor, a validator and a retester, each a fresh subagent that never sees the implementer's reasoning; diff scope per PR, full scope at milestones). Include deploy scripts and runbooks in scope. Critical or High findings stop for the user; lower ones the agent fixes or records as accepted risk.
+3. **Independent audit with fresh context, by separate subagents**: follow `references/audit-lite.md` (an auditor, a validator and a retester, each a fresh subagent that never sees the implementer's reasoning; diff scope per PR, full scope at milestones with two auditors on different models). Include deploy scripts and runbooks in scope. Critical or High findings stop for the user; lower ones the agent fixes or records as accepted risk.
 4. **Reproduce every finding as a PoC test** (on a fork when a third party is involved) before changing code. Unreproduced findings stay "plausible".
 5. **Fix minimally, or accept the risk.** A fix can add more surface than it removes. When every fix introduces new findings, a documented accepted risk is a legitimate outcome (the user signs off when it is Critical or High). A third party's patch for a finding is verified like any other code.
 6. **The PoC becomes a regression test.** Regression tests may be adapted, never silently deleted; reviewers check diffs for removed tests, and merges are checked against what the rehearsal said they would do.

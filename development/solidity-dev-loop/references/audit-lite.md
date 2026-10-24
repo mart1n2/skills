@@ -15,7 +15,9 @@ The implementer's context carries its assumptions. In past projects, fixes trust
 | Validator | a second fresh subagent | the candidate files, PoC tests, code, spec | the auditor's reasoning beyond the candidate file | CONFIRMED / INCONCLUSIVE / REFUTED per candidate, severity check |
 | Retester | a fresh subagent after fixes | the fix diff, the findings it claims to fix, full suite | the implementer's explanation of the fix | per finding: closed / not closed / new candidates from the fix |
 
-All roles use the same model as the implementer by default: independence comes from the fresh context, not from a different model. The roles must be different subagent invocations. A validator that only reads and agrees is not validation: it reruns the PoC, tries to falsify it, and challenges reachability and impact.
+PR audits use the same model as the implementer: independence comes from the fresh context. Milestone audits run **two auditors on different models** (for example Opus and Sonnet) and take the union of their candidates, then each model validates the other's. In a measured run on a real codebase with seven known issues, both auditors found the High; each alone found three or four known issues, the union found five, and each also found one issue the project only discovered later. The roles must be different subagent invocations. A validator that only reads and agrees is not validation: it reruns the PoC, tries to falsify it, and challenges reachability and impact.
+
+The validator judges against the spec and requirements, not against code comments or design notes written by the implementer. "The comment says it is intended" is not a refutation; when the spec is silent, the verdict is a spec-layer finding ("decide and write the intended behaviour"), not REFUTED. Behaviour the spec explicitly accepts is REFUTED as a defect and noted as intended.
 
 ## Scope and cadence
 
@@ -35,9 +37,9 @@ Skipped in lite: target-lock and T-NN artifact IDs (the git commit is the bindin
 
 ## Workflow
 
-1. **Goals.** Start from the project's own invariant list and requirement IDs: for each, search backward for conditions that break it. Then search forward from real actors (anyone, depositor, keeper, allocator, guardian, third-party admin, donor of dust). Add the adversary checklist in `checklists.md`.
+1. **Goals.** Start from the project's own invariant list and requirement IDs: for each, search backward for conditions that break it. Then search forward from real actors (anyone, depositor, keeper, allocator, guardian, third-party admin, donor of dust). Add the adversary checklist in `checklists.md`. Walk every runbook and bot step as code too: which values it reads (raw balances an attacker can inflate), and what a griefer can make it revert on; both auditors in the measured run skipped the runbook and missed exactly such a finding.
 2. **Candidates.** One file per candidate in `audit-workspace/<scope>/candidates/C-NN.md` (gitignored), with: commit, actor and preconditions, mechanism, violated invariant or requirement ID, claimed impact in assets, falsification plan, dedup key.
-3. **PoC.** A Foundry test in the project's `test/` tree (fork test when a third party is involved) that fails on the current code, named `test_Audit_C-NN_<what>` until confirmed. Assert the fund effect (attacker gain, victim loss, permanent revert of an exit), not just a revert.
+3. **PoC.** A Foundry test in the project's `test/` tree (fork test when a third party is involved), named `test_Audit_C_NN_<what>`, that drives the attack from the real entry point and **asserts the violated property**, so it fails on the current code and passes once fixed; the same test then becomes the regression test unchanged. Assert the fund effect (attacker gain, victim loss, permanent revert of an exit), not just a revert, and add a negative control (the same flow without the attack) that passes.
 4. **Falsify.** Try to kill the candidate: a negative control, the realistic configuration, real third-party behaviour on a fork. Failed attempts to reproduce are INCONCLUSIVE, not refuted.
 5. **Validate.** The validator reruns and challenges each candidate and records the verdict and severity.
 6. **Feedback.** Return the confirmed findings to the implementer in the format below.
@@ -72,4 +74,4 @@ Give the violated property, not a patch: a prescribed patch anchors the implemen
 
 ## Cost control
 
-PR audits stay cheap by keeping scope to the diff and its blast radius and by skipping the atlas. Milestone audits are the expensive pass; run them deliberately, not on every PR.
+PR audits stay cheap by keeping scope to the diff and its blast radius and by skipping the atlas. Milestone audits are the expensive pass (in the measured run, about 340k tokens per full-scope auditor and 150k to 190k per validator on a codebase of eleven adapters); run them deliberately, not on every PR.
