@@ -81,6 +81,7 @@ cp -R development/solidity-dev-loop       "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/s
 
 # Codex
 cp -R audit/contract-security-audit "${CODEX_HOME:-$HOME/.codex}/skills/"
+cp -R development/solidity-dev-loop    "${CODEX_HOME:-$HOME/.codex}/skills/"
 
 # Hermes
 cp -R audit/contract-security-audit "${HERMES_HOME:-$HOME/.hermes}/skills/"
