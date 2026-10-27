@@ -43,7 +43,7 @@ Skipped in lite: target-lock and T-NN artifact IDs (the git commit is the bindin
 4. **Falsify.** Try to kill the candidate: a negative control, the realistic configuration, real third-party behaviour on a fork. Failed attempts to reproduce are INCONCLUSIVE, not refuted.
 5. **Validate.** The validator reruns and challenges each candidate and records the verdict and severity.
 6. **Feedback.** Return the confirmed findings to the implementer in the format below.
-7. **Fix and retest.** The implementer fixes; the retester checks every claimed fix and hunts the fix diff for new candidates; the full suite including invariants and fork runs.
+7. **Fix and retest.** The implementer fixes; the retester checks every claimed fix and hunts the fix diff for new candidates; the full suite including invariants and fork runs. Rounds end by the rules in "When the loop stops" in SKILL.md (convergence, a cap of three rounds, a twice-reopened finding goes back to design). No RPC is not a reason to skip fork evidence: use a public endpoint for the chain.
 
 ## Severity and the human gate
 

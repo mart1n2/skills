@@ -60,7 +60,7 @@ A development loop for production Solidity that holds user funds, distilled from
 4. **Deploy and operations** — scripts, verifiers and runbooks are in scope and audited.
 5. **Verify** — **audit-lite**: a light profile of `contract-security-audit` run by independent subagents (auditor, validator, retester, each with a fresh context that never sees the implementer's reasoning). Diff scope per PR with the same model, full scope at milestones with two auditors on different models that cross-validate; PoCs land in `test/` as regression tests; only Critical/High findings stop for a human.
 
-Findings found late are sent back to the layer they came from: a design-layer problem changes the spec first, not just the code.
+Findings found late are sent back to the layer they came from: a design-layer problem changes the spec first, not just the code. The loop runs the whole task and stops only when it converges (no new confirmed Medium+ finding, at most three audit rounds) or needs the human's authority; simple blockers such as a missing RPC are worked around with public services.
 
 **Bundled** — `references/templates.md` (requirement, deferred-scope, formula, upgrade-model, dependency, exit-liquidity, invariant tables), `references/checklists.md` (adversary, valuation and degraded-mode, exit liquidity, deploy and ops), `references/audit-lite.md` (roles, scope, what to load from `contract-security-audit`, severity gate, feedback format).
 

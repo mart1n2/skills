@@ -113,6 +113,20 @@ spec/design --> tests --> implementation --> deploy/ops --> verify/audit
 
 Before fixing anything found late, ask which layer it came from. A wrong trust assumption, a missing exit path, a wrong valuation rule or an unfair economic outcome is a design problem: update the spec or ADR, then the tests, then the code.
 
+## When the loop stops
+
+The loop finishes the whole task by default; it stops only for a human decision or when it has converged. Without these rules an audit-fix-retest cycle can run forever: auditors always propose something, and a fix can create the next finding.
+
+- **Converged:** a round with no new confirmed finding at Medium or above ends the cycle. Low and Info findings go to a backlog in the docs; they do not drive another round.
+- **Round cap:** at most three audit-fix-retest rounds per scope (a PR or a milestone). At the cap, stop and hand the human the open list with a recommendation for each.
+- **Reopened twice means wrong layer:** a finding whose fix is rejected twice is a design-layer problem; stop and take it back to the spec with the human.
+- **A fix must not make things worse:** if a fix introduces a finding at least as severe as the one it closes, revert it and choose between an accepted risk and a design change (the human decides when it is High or above).
+- **One tie-break:** when auditor and validator disagree, one fresh validator decides; if they still disagree on something at High or above, the human decides.
+- **Unblock yourself before stopping.** A missing dependency is work, not a reason to halt. Missing RPC for fork tests: use a public endpoint for the chain (read-only, and pin a recent block, since public nodes often lack archive state). Missing ABI, address or protocol behaviour: read the verified source on the explorer, the protocol's docs or its repository. Missing tool: install it the way the project pins tools. Keep working on everything the block does not touch, and list blockers and workarounds in the final report.
+- **Stop only for what needs the human's authority:** private keys or paid API keys, access to private repositories or accounts, spending money, deploying to a live network, or a business question the documents do not answer. Even then, finish every other part of the task first and stop with a precise question.
+- **Flaky tests:** reproduce with the failing seed first; a failure that does not reproduce is reported as flaky and is not a fix target.
+- **Budget:** a milestone has a token or time budget; when it is spent, stop and report progress, open items and what remains.
+
 ## Tool stack
 
 Foundry unit, fuzz and invariant tests; fork tests against every real third-party protocol at pinned blocks, running in CI; Halmos for symbolic properties; an independent audit pass with retest; an external audit before mainnet. Kontrol / Certora only when TVL or novel math justify them.
