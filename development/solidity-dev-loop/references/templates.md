@@ -46,6 +46,18 @@ Decision and reason
 Consequences: requirements, tests and risks it creates
 ```
 
+## Delivery plan (`docs/plan.md`)
+
+```
+Status: proposed | confirmed by <who> on <date>
+| # | Slice (one PR) | Requirement IDs | Acceptance tests | Depends on | Risk it retires | Done when |
+|---|---|---|---|---|---|---|
+| 1 | AdapterBase + custody adapter | ADP-01..05, CUST-01..04 | unit, fuzz, INV-01/02 | - | valuation never reverts | suite + lint green, audit-lite PR pass |
+Milestones: M1 after slice 3 (full-scope audit-lite, fork rehearsal), M2 testnet, M3 external audit
+Budget per milestone: ...
+Deferred: ...            Open risks carried: ...
+```
+
 ## Open questions (until sign-off)
 
 | # | Source | Question | Options and consequence | Recommendation | Owner | Status |

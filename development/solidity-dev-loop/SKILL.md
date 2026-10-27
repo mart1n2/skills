@@ -52,6 +52,17 @@ Artifacts:
 
 **Exit gate:** the open-questions list is empty or every remaining item is an explicit, human-accepted assumption; the human has signed off the spec; every requirement answers "how is this tested"; every third-party assumption was checked on a fork; every dependency answers "worst case for exits and recovery"; every formula maps to a library or is flagged; the role matrix, valuation rule, economic table and upgrade model have written reasons.
 
+## Plan proposal, confirmed by the human
+
+After the spec is signed off and before any test or code, propose the delivery plan and wait for the human to confirm it:
+
+- **Slices and order:** the vertical slices (each one PR: contract, tests, docs, dependency entry), their order and dependencies, what is built first to retire the largest risk.
+- **Per slice:** the requirement IDs it covers, its acceptance tests (unit, fuzz, invariants, fork), and its definition of done.
+- **Milestones:** where full-scope audits happen, what is deployed where (fork rehearsal, testnet, mainnet), and the budget per milestone.
+- **Out of the plan:** deferred scope, and the open risks the plan carries.
+
+After confirmation the loop runs the plan without asking per step. Going back to the human is needed only when the plan itself changes in a way the human would care about: a slice added, dropped or merged, the order changed so that a risk is retired later, a milestone moved, or the budget exceeded. Reordering inside a slice or fixing within the signed spec does not need it.
+
 ## Phase 2: Acceptance tests first
 
 Turn the requirements into tests before implementing. All layers:
