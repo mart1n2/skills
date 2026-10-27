@@ -46,10 +46,26 @@ Decision and reason
 Consequences: requirements, tests and risks it creates
 ```
 
+## Gate 1 decision brief (one page)
+
+```
+Decide: 1) <architecture decision> 2) <business decision> ...
+For each: options | consequence | recommendation (first) | measured evidence (prototype, fork, simulation)
+Detail questions with defaults: Q-07..Q-19 (reply "use the recommendations" to accept all)
+Design review: N findings, M folded into options, K open below
+Speculative work already done on the recommended options: ...
+```
+
+## Traceability matrix
+
+| Original § | PRD § | TRD ID | Component | Tests |
+|---|---|---|---|---|
+| §4 | 4.2 | CARRY-05 | BtcCarryAdapter | test_Rebalance..., invariant_exitAlwaysPossible |
+
 ## Delivery plan (`docs/plan.md`)
 
 ```
-Status: proposed | confirmed by <who> on <date>
+Status: proposed | signed at Gate 2 by <who> on <date>
 | # | Slice (one PR) | Requirement IDs | Acceptance tests | Depends on | Risk it retires | Done when |
 |---|---|---|---|---|---|---|
 | 1 | AdapterBase + custody adapter | ADP-01..05, CUST-01..04 | unit, fuzz, INV-01/02 | - | valuation never reverts | suite + lint green, audit-lite PR pass |

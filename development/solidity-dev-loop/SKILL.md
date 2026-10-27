@@ -24,17 +24,43 @@ Read `references/templates.md` when producing design artifacts, `references/chec
 
 ## Phase 1: Spec and design (the most important step)
 
-**Human in the loop.** This phase is where the human decides; later phases mostly execute. In past projects the costliest rework came from questions settled late: access and API choices changed after the first implementation, a spec scoped to one chain and two assets when the product meant many, an asset listed that had no live market, deferred scope built anyway. So:
+**Human in the loop, two gates.** This phase is where the human decides; later phases mostly execute. In past projects the costliest rework came from questions settled late: access and API choices changed after the first implementation, a spec scoped to one chain and two assets when the product meant many, an asset listed that had no live market, deferred scope built anyway, an architecture rewritten the day it was finished. The human decides at two gates; between them the agent does all the work it can in parallel, so the human never waits on the agent and the agent never idles waiting on the human.
 
-- **Keep the original requirements untouched; write an enriched PRD next to them.** The user's requirement document or PRD is the source and is never edited (for example `docs/prd/original.md`). Write `docs/PRD.md` from it: every statement made explicit (actors, flows, numbers, states, failure cases, non-goals), each traced to the original section it came from, and everything you added marked as derived or as an assumption linked to an open question. The original shows what was asked; the enriched PRD shows what will be built; the gap between them is the list of things the human must confirm.
-- **Derive the open questions from the document, not from a generic list.** Read the original for vague words ("safe", "fast", "low risk"), missing numbers, undefined actors or roles, flows with no failure path, statements that conflict, implicit assumptions about third parties, and anything the product clearly varies (assets, chains, number of vaults). Each becomes a question with its source pointer, the options and your recommendation. Do not resolve a business question by guessing and moving on.
+```
+original requirements (unedited)
+  -> [agent, in parallel] enriched PRD + ranked open questions
+                          + fork spikes, dependency and liquidity research
+                          + 2-3 architecture options, each prototyped and measured
+                          + independent spec and design review (with economic simulation)
+  -> Gate 1 (human): answer the questions, choose the architecture      one review package
+  -> [agent] TRD + architecture + ADRs + delivery plan + traceability matrix
+             + a second design review of the chosen design
+  -> Gate 2 (human): sign off spec and plan together                     one sign-off
+  -> autonomous loop; milestone reports; stop only for exceptions
+```
+
+**Scale the process to the change.** The full two-gate flow is for a new system or a new protocol integration. A small feature or fix inside a signed spec gets one light gate: a short plan with its open questions, confirmed once. An amendment to a signed spec is a delta (changed PRD and TRD sections, affected ADRs, plan impact) reviewed at one gate, not a rerun of the whole flow.
+
+### Before Gate 1 (agent work, in parallel)
+
+- **Keep the original requirements untouched; write an enriched PRD next to them.** The user's requirement document or PRD is the source and is never edited (for example `docs/prd/original.md`). Write `docs/PRD.md` from it: every statement made explicit (actors, flows, numbers, states, failure cases, non-goals), each traced to the original section, and everything added marked as derived or as an assumption linked to an open question. The gap between original and enriched PRD is what the human must confirm.
+- **Derive the open questions from the document, then rank them.** Read the original for vague words ("safe", "fast", "low risk"), missing numbers, undefined actors or roles, flows with no failure path, conflicts, implicit third-party assumptions, and anything the product clearly varies (assets, chains, number of vaults). Each question carries its source pointer, options, consequences and your recommendation. Split them: **architecture-shaping** questions the human must answer, and **detail** questions with a default the human can accept wholesale ("use the recommendations for the rest"). Do not ask what the code, the docs or a fork read can answer.
 - **The human decides business and risk; the agent decides engineering defaults.** The generic floor of human decisions, which the PRD questions extend: scope and what is deferred, users and trust model, roles and who holds them, assets, chains and venues, risk appetite (caps, ceilings, LTV, slippage), economics and fairness rules, upgrade model, timelock lengths, which third-party risks are accepted. Agent: choices with a conventional answer (library, rounding direction, naming, test layout), stated in the spec so the human can overrule them.
-- **Ask in batches, with a recommendation.** Group the open questions by topic, give the options, the consequence of each and your pick first; do not ask one question per turn, and do not ask what the code, the docs or a fork read can answer.
-- **Record every answer in the spec** (a decision log with date and the reason), and update the requirement it changes, so the decision is not re-argued later.
-- **Discuss the architecture with the human before writing the TRD.** Once the PRD is confirmed, propose the technical architecture as options, not a finished answer: for each major decision (contract topology and what is reused versus custom, how each third-party protocol is integrated, sync versus async flows, where valuation and accounting live, upgrade model, roles and governance mechanism, off-chain components such as keepers, bots and runbooks), give two or three alternatives with their trade-offs against the PRD and the non-negotiable invariant, and your recommendation. Spike the deciding unknowns on a fork before the discussion so the options rest on facts. Record each decision as an ADR (`docs/adr/NNN-<title>.md`) and the result in `docs/architecture.md`. Architecture changed after code is the most expensive rework seen in practice (an adapter rewritten the same day it was finished, a bespoke governance mechanism replaced by a standard timelock, a queue whose ADR the code never followed).
-- **The human confirms the enriched PRD, agrees the architecture, then signs off the spec (TRD plus architecture) before phase 2.** The TRD's requirement IDs trace back to enriched-PRD sections and forward to the architecture components that implement them; a change to the architecture after sign-off goes back to the human like a change to a requirement. Present the finished spec with the remaining assumptions highlighted; the agent never self-approves it. After sign-off, a change to a requirement, a role, a parameter range or the accepted risks goes back to the human; a fix that stays inside the signed spec does not.
+- **Research that does not depend on the answers runs now:** fork spikes on every third-party assumption, admin powers of each dependency, exit-liquidity quotes, mock-versus-fork checks, CI and test scaffolding. Work that does depend on an answer may start on the recommended option, marked speculative, and is discarded if the human chooses otherwise.
+- **Architecture options are prototyped, not argued.** For each major decision (contract topology and reuse versus custom, how each protocol is integrated, sync versus async, where valuation and accounting live, upgrade model, roles and governance, off-chain keepers, bots and runbooks), give two or three options. Build each as a throwaway prototype in parallel subagents and measure it on a fork: custom code size, gas, real third-party behaviour, and whether any path can lock funds permanently. The options in the review package carry those numbers.
+- **Independent spec and design review before the human sees it.** A fresh subagent that did not write the PRD or the options reviews them adversarially, the design-layer form of audit-lite (`references/audit-lite.md`): contradictions, untestable requirements, missing failure paths, trust assumptions, and a numeric simulation of each actor's outcome (late borrower, first mover out, exiting LP, keeper) in normal, stressed and default cases. In past projects a design review of this kind found the structural economic defects (mutualised interest, phantom NAV, floating rates on fixed-term debt) that no code audit would. Fold its findings into the package or into the questions.
+- **Gate 1 package:** a one-page decision brief (what to decide, the recommendation, the consequence of each choice), the ranked questions, the architecture options with measurements, the enriched PRD and the review findings. Aim for a review the human can finish in about half an hour.
 
-Artifacts:
+### Between the gates (agent work)
+
+- **Record every answer** in a decision log (date, reason, requirements changed) and each architecture choice as an ADR (`docs/adr/NNN-<title>.md`), summarised in `docs/architecture.md`, so decisions are not re-argued.
+- Write the TRD (artifacts below), the architecture document, the delivery plan and a traceability matrix: original section -> PRD section -> TRD ID -> component -> tests. Run a second independent design review on the chosen design.
+
+### Gate 2 (human signs off spec and plan together)
+
+Present the TRD, architecture and plan with the remaining assumptions highlighted; the agent never self-approves. After sign-off the loop runs without per-step approval. Back to the human only for: a change to a requirement, a role, a parameter range, the architecture or the accepted risks; a plan-level change (a slice added, dropped or merged, risk retired later, a milestone moved, the budget exceeded); and the exceptions in "When the loop stops". A fix inside the signed spec, or reordering inside a slice, does not need it.
+
+### TRD artifacts (written between the gates, informed by the research before Gate 1)
 
 1. **Requirements as testable items with IDs** (for example `CARRY-05`). Tests, docs and findings cite them. If the spec conflicts with itself or with reality, stop and ask; do not guess.
 2. **Role and permission matrix**: every privileged function, who may call it, with what delay, and whether it can only reduce risk. Get it signed off before implementation; access and API choices changed after the first implementation are expensive. Check that no role can veto its own removal.
@@ -50,18 +76,16 @@ Artifacts:
 12. **Exit path and exit liquidity.** Trace how funds leave in every state. The exit must not depend on a price read or replaceable contract that can fail for good unless a timelocked setter or `migrate` restores it. Measure real depth for the exit route at the sizes you intend (for example quotes at 1M and 5M), across all positions that share the same route or underlying, and derive caps from it. Illiquidity is a lock too.
 13. **Adversary model.** Walk `references/checklists.md`: donations and dust to any address (never infer state from raw `balanceOf`), flash and same-block deposits, reentrancy including read-only via callbacks, repeated calls against per-call caps, griefing that blocks batches, caller-supplied routes and calldata, reused approvals. Every caller-supplied input is hostile: enforce floors and arrival checks in the contract.
 
-**Exit gate:** the open-questions list is empty or every remaining item is an explicit, human-accepted assumption; the human has signed off the spec; every requirement answers "how is this tested"; every third-party assumption was checked on a fork; every dependency answers "worst case for exits and recovery"; every formula maps to a library or is flagged; the role matrix, valuation rule, economic table and upgrade model have written reasons.
+**Exit gate:** the open-questions list is empty or every remaining item is an explicit, human-accepted assumption; Gate 2 is signed; every requirement answers "how is this tested"; every third-party assumption was checked on a fork; every dependency answers "worst case for exits and recovery"; every formula maps to a library or is flagged; the role matrix, valuation rule, economic table and upgrade model have written reasons.
 
-## Plan proposal, confirmed by the human
+## Delivery plan (signed at Gate 2)
 
-After the spec is signed off and before any test or code, propose the delivery plan and wait for the human to confirm it:
+The plan is part of the Gate 2 package (template in `references/templates.md`):
 
-- **Slices and order:** the vertical slices (each one PR: contract, tests, docs, dependency entry), their order and dependencies, what is built first to retire the largest risk.
+- **Slices and order:** the vertical slices (each one PR: contract, tests, docs, dependency entry), their order and dependencies, riskiest first.
 - **Per slice:** the requirement IDs it covers, its acceptance tests (unit, fuzz, invariants, fork), and its definition of done.
-- **Milestones:** where full-scope audits happen, what is deployed where (fork rehearsal, testnet, mainnet), and the budget per milestone.
+- **Milestones:** where full-scope audits happen, what is deployed where (fork rehearsal, testnet, mainnet), and the budget per milestone. At each milestone the agent reports progress; it does not ask for approval unless something in the plan changed.
 - **Out of the plan:** deferred scope, and the open risks the plan carries.
-
-After confirmation the loop runs the plan without asking per step. Going back to the human is needed only when the plan itself changes in a way the human would care about: a slice added, dropped or merged, the order changed so that a risk is retired later, a milestone moved, or the budget exceeded. Reordering inside a slice or fixing within the signed spec does not need it.
 
 ## Phase 2: Acceptance tests first
 
@@ -145,4 +169,4 @@ Foundry unit, fuzz and invariant tests; fork tests against every real third-part
 
 ## Output
 
-For a plan or design: the phase 1 artifacts (templates), the phase 2 test plan, and which exit gates are not met yet. When reviewing an existing system or a proposal: gaps against the gates, ordered by risk to funds, with the layer each belongs to. Answer in the user's language.
+For a new system or integration: the Gate 1 package first (decision brief, ranked questions, measured architecture options, review findings), then the Gate 2 package (TRD, architecture, ADRs, plan, traceability). For a small change: one light plan with its questions. Always state which exit gates are not met yet. When reviewing an existing system or a proposal: gaps against the gates, ordered by risk to funds, with the layer each belongs to. Answer in the user's language.

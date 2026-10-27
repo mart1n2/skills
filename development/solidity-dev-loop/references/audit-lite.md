@@ -21,6 +21,8 @@ The validator judges against the spec and requirements, not against code comment
 
 ## Scope and cadence
 
+- **Design review (before each spec gate):** the auditor gets the original requirements, the enriched PRD and the architecture options or the chosen design, never the author's reasoning. Candidates are contradictions, untestable requirements, missing failure paths, trust assumptions, and actors who gain or lose unfairly. Evidence is a numeric simulation (a Foundry or script model of each actor's outcome in normal, stressed and default cases) or a prototype run on a fork instead of a PoC against final code. Confirmed design findings go into the gate package as questions or changed options.
+
 - **PR audit (diff scope):** every PR that touches `src/`, deploy scripts or runbooks. Scope is the diff plus everything it can affect: transitive callers, shared storage, invariants that read changed state, and external assumptions the change relies on. A diff-only read is not enough when shared state changes.
 - **Milestone audit (full scope):** before a deployment, before an external audit, and after a large feature merges. Whole system, all invariants, deploy scripts and runbooks included.
 
