@@ -24,6 +24,14 @@ Read `references/templates.md` when producing design artifacts, `references/chec
 
 ## Phase 1: Spec and design (the most important step)
 
+**Human in the loop.** This phase is where the human decides; later phases mostly execute. In past projects the costliest rework came from questions settled late: access and API choices changed after the first implementation, a spec scoped to one chain and two assets when the product meant many, an asset listed that had no live market, deferred scope built anyway. So:
+
+- **Keep an open-questions list from the first message.** Every ambiguity, assumption or business choice goes on it with your recommendation and the options. Do not resolve a business question by guessing and moving on.
+- **The human decides business and risk; the agent decides engineering defaults.** Human: scope and what is deferred, users and trust model, roles and who holds them, assets, chains and venues, risk appetite (caps, ceilings, LTV, slippage), economics and fairness rules, upgrade model, timelock lengths, which third-party risks are accepted. Agent: choices with a conventional answer (library, rounding direction, naming, test layout), stated in the spec so the human can overrule them.
+- **Ask in batches, with a recommendation.** Group the open questions by topic, give the options, the consequence of each and your pick first; do not ask one question per turn, and do not ask what the code, the docs or a fork read can answer.
+- **Record every answer in the spec** (a decision log with date and the reason), and update the requirement it changes, so the decision is not re-argued later.
+- **The human signs off the spec (TRD) before phase 2.** Present the finished spec with the remaining assumptions highlighted; the agent never self-approves it. After sign-off, a change to a requirement, a role, a parameter range or the accepted risks goes back to the human; a fix that stays inside the signed spec does not.
+
 Artifacts:
 
 1. **Requirements as testable items with IDs** (for example `CARRY-05`). Tests, docs and findings cite them. If the spec conflicts with itself or with reality, stop and ask; do not guess.
@@ -40,7 +48,7 @@ Artifacts:
 12. **Exit path and exit liquidity.** Trace how funds leave in every state. The exit must not depend on a price read or replaceable contract that can fail for good unless a timelocked setter or `migrate` restores it. Measure real depth for the exit route at the sizes you intend (for example quotes at 1M and 5M), across all positions that share the same route or underlying, and derive caps from it. Illiquidity is a lock too.
 13. **Adversary model.** Walk `references/checklists.md`: donations and dust to any address (never infer state from raw `balanceOf`), flash and same-block deposits, reentrancy including read-only via callbacks, repeated calls against per-call caps, griefing that blocks batches, caller-supplied routes and calldata, reused approvals. Every caller-supplied input is hostile: enforce floors and arrival checks in the contract.
 
-**Exit gate:** every requirement answers "how is this tested"; every third-party assumption was checked on a fork; every dependency answers "worst case for exits and recovery"; every formula maps to a library or is flagged; the role matrix, valuation rule, economic table and upgrade model have written reasons.
+**Exit gate:** the open-questions list is empty or every remaining item is an explicit, human-accepted assumption; the human has signed off the spec; every requirement answers "how is this tested"; every third-party assumption was checked on a fork; every dependency answers "worst case for exits and recovery"; every formula maps to a library or is flagged; the role matrix, valuation rule, economic table and upgrade model have written reasons.
 
 ## Phase 2: Acceptance tests first
 

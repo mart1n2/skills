@@ -54,7 +54,7 @@ A development loop for production Solidity that holds user funds, distilled from
 
 **Flow** — five phases, each with an exit gate:
 
-1. **Spec and design** — requirement IDs, role matrix, deferred scope, reuse before building, third-party assumptions verified on a fork *before* the design freezes, a formula table mapped to OpenZeppelin / Solady math, valuation at what the exit actually returns, a per-actor economic review, an upgrade model chosen from the business, a third-party dependency table, exit liquidity measured across shared routes, and an adversary model.
+1. **Spec and design** — human in the loop: an open-questions list resolved in batches with recommendations, a decision log, and human sign-off of the spec before any test or code; requirement IDs, role matrix, deferred scope, reuse before building, third-party assumptions verified on a fork *before* the design freezes, a formula table mapped to OpenZeppelin / Solady math, valuation at what the exit actually returns, a per-actor economic review, an upgrade model chosen from the business, a third-party dependency table, exit liquidity measured across shared routes, and an adversary model.
 2. **Acceptance tests first** — unit, fuzz, invariant (with adversarial handlers), fork tests against every real dependency running in CI, regression, and Halmos.
 3. **Whole slices** — one complete vertical slice per PR; arithmetic only through libraries.
 4. **Deploy and operations** — scripts, verifiers and runbooks are in scope and audited.

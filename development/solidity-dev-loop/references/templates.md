@@ -2,6 +2,23 @@
 
 Use these in the spec / design documents. Keep IDs stable so tests and audit findings can cite them.
 
+## Open questions (until sign-off)
+
+| # | Question | Options and consequence | Recommendation | Owner | Status |
+|---|---|---|---|---|---|
+| Q-01 | Who may call `emergencyDelever`? | anyone (liveness, griefing risk) / keeper only (needs a live keeper) | keeper only, plus permissionless after 24h | human | open |
+
+## Decision log
+
+| Date | Decision | Reason | Requirements changed | Decided by |
+|---|---|---|---|---|
+| 2026-10-10 | Rebalancing goes through one `rebalance()`; no permissionless delever | fewer entry points, keeper is monitored | CARRY-03, CARRY-07 | product owner |
+
+## Spec sign-off
+
+| Version / commit | Signed off by | Date | Assumptions accepted at sign-off |
+|---|---|---|---|
+
 ## Requirement
 
 | ID | Requirement | Test(s) |
