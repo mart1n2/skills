@@ -20,6 +20,32 @@ Source: docs/prd/original.md (unedited). Status: draft | confirmed by <who> on <
 ## 10. Traceability                 original section -> PRD section -> TRD IDs
 ```
 
+## Architecture (`docs/architecture.md`)
+
+```
+# <Product> architecture        Status: proposed | agreed with <who> on <date>
+## 1. Context                   PRD goals it serves; the non-negotiable invariant
+## 2. Components                each contract / module: responsibility, reused library or upstream, custom code size
+## 3. Value and call flows      deposit, allocate, exit, settle, emergency: who calls what, where funds sit
+## 4. Accounting and valuation  where state lives, which view prices what, rounding
+## 5. External integrations     per protocol: entry points used, sync/async, admin powers, recovery
+## 6. Roles and governance      role matrix, timelocks, emergency powers (risk-reducing only)
+## 7. Upgrade model             choice and reason
+## 8. Off-chain components      keepers, bots, runbooks, monitoring: inputs they trust
+## 9. Decisions                 links to ADRs
+## 10. Requirement mapping      TRD ID -> component
+```
+
+## ADR (`docs/adr/NNN-<title>.md`)
+
+```
+# ADR-NNN <decision>            Status: proposed | accepted <date> by <who> | superseded by ADR-MMM
+Context: the PRD need and the facts (fork spike results) that constrain it
+Options: A / B / C, each with trade-offs (custom code, lock risk, trust, cost, what it rules out later)
+Decision and reason
+Consequences: requirements, tests and risks it creates
+```
+
 ## Open questions (until sign-off)
 
 | # | Source | Question | Options and consequence | Recommendation | Owner | Status |
