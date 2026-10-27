@@ -2,11 +2,30 @@
 
 Use these in the spec / design documents. Keep IDs stable so tests and audit findings can cite them.
 
+## Enriched PRD (`docs/PRD.md`; the original stays unedited)
+
+```
+# <Product> PRD (enriched)
+Source: docs/prd/original.md (unedited). Status: draft | confirmed by <who> on <date>
+
+## 1. Goals and non-goals          each line: [orig §2] stated | [derived] | [assumption Q-03]
+## 2. Users, actors and roles       who, what they may do, trust level
+## 3. Assets, chains, venues        listed explicitly, with what may vary later
+## 4. Flows                         per flow: happy path, failure paths, who can trigger
+## 5. Numbers                       caps, ceilings, LTV, slippage, fees, delays (value or Q-NN)
+## 6. Economics and fairness        who earns or bears what in normal, stressed, default cases
+## 7. Third parties                 what is relied on, what happens when it fails
+## 8. Deferred scope and triggers
+## 9. Open questions                Q-NN list below
+## 10. Traceability                 original section -> PRD section -> TRD IDs
+```
+
 ## Open questions (until sign-off)
 
-| # | Question | Options and consequence | Recommendation | Owner | Status |
-|---|---|---|---|---|---|
-| Q-01 | Who may call `emergencyDelever`? | anyone (liveness, griefing risk) / keeper only (needs a live keeper) | keeper only, plus permissionless after 24h | human | open |
+| # | Source | Question | Options and consequence | Recommendation | Owner | Status |
+|---|---|---|---|---|---|---|
+| Q-01 | orig §4 "keepers rebalance when needed" | Who may call `emergencyDelever`, and when? | anyone (liveness, griefing risk) / keeper only (needs a live keeper) | keeper only, plus permissionless after 24h | human | open |
+| Q-02 | orig §3 "USDC vault" | Is the vault asset fixed to USDC, or will ETH/BTC vaults follow? | fixed (simpler) / generic asset (no rewrite later) | generic asset | human | open |
 
 ## Decision log
 
