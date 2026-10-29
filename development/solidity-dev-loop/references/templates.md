@@ -1,18 +1,18 @@
-# Design artifact templates
+# Templates
 
-Use these in the spec / design documents. Keep IDs stable so tests and audit findings can cite them.
+Keep IDs stable so tests, docs and findings can cite them (never `src/` comments). Examples use a neutral `Vault` with `Adapter` modules; rename to the project's domain.
 
 ## Enriched PRD (`docs/PRD.md`; the original stays unedited)
 
 ```
 # <Product> PRD (enriched)
-Source: docs/prd/original.md (unedited). Status: draft | confirmed by <who> on <date>
+Source: docs/prd/original.md (unedited). Status: draft | confirmed at Gate 1 by <who> on <date>
 
 ## 1. Goals and non-goals          each line: [orig §2] stated | [derived] | [assumption Q-03]
 ## 2. Users, actors and roles       who, what they may do, trust level
 ## 3. Assets, chains, venues        listed explicitly, with what may vary later
 ## 4. Flows                         per flow: happy path, failure paths, who can trigger
-## 5. Numbers                       caps, ceilings, LTV, slippage, fees, delays (value or Q-NN)
+## 5. Numbers                       caps, LTV, slippage, fees, delays (value or Q-NN)
 ## 6. Economics and fairness        who earns or bears what in normal, stressed, default cases
 ## 7. Third parties                 what is relied on, what happens when it fails
 ## 8. Deferred scope and triggers
@@ -20,16 +20,39 @@ Source: docs/prd/original.md (unedited). Status: draft | confirmed by <who> on <
 ## 10. Traceability                 original section -> PRD section -> TRD IDs
 ```
 
+## Open questions
+
+| # | Source | Question | Options and consequence | Recommendation | Kind | Status |
+|---|---|---|---|---|---|---|
+| Q-01 | orig §4 "keepers rebalance when needed" | Who may trigger an emergency unwind, and when? | anyone (liveness, griefing risk) / keeper only (needs a live keeper) | keeper, permissionless after 24h | architecture | open |
+| Q-02 | orig §3 "a USDC vault" | Fixed to USDC, or other assets later? | fixed (simpler) / generic asset (no rewrite later) | generic asset | architecture | open |
+| Q-07 | orig §5 "low fees" | Management fee? | 0 / 0.5% / 1% | 0.5% | detail (default) | open |
+
+## Gate 1 decision brief (one page)
+
+```
+Decide: 1) <architecture decision> 2) <business decision> ...
+For each: options | consequence | recommendation (first) | evidence (prototype, fork, simulation)
+Detail questions with defaults: Q-07..Q-19 (reply "use the recommendations" to accept all)
+Design review: N findings, M folded into options, K open
+Speculative work done on the recommended options: ...
+```
+
+## Decision log
+
+| Date | Decision | Reason | Requirements changed | Decided by |
+|---|---|---|---|---|
+
 ## Architecture (`docs/architecture.md`)
 
 ```
-# <Product> architecture        Status: proposed | agreed with <who> on <date>
-## 1. Context                   PRD goals it serves; the non-negotiable invariant
-## 2. Components                each contract / module: responsibility, reused library or upstream, custom code size
+# <Product> architecture        Status: proposed | agreed at Gate 1 by <who> on <date>
+## 1. Context                   PRD goals served; the non-negotiable invariant
+## 2. Components                each contract: responsibility, reused library or upstream, custom code size
 ## 3. Value and call flows      deposit, allocate, exit, settle, emergency: who calls what, where funds sit
 ## 4. Accounting and valuation  where state lives, which view prices what, rounding
-## 5. External integrations     per protocol: entry points used, sync/async, admin powers, recovery
-## 6. Roles and governance      role matrix, timelocks, emergency powers (risk-reducing only)
+## 5. External integrations     per protocol: entry points, sync or async, admin powers, recovery
+## 6. Roles and governance      role matrix, timelocks, risk-reducing emergency powers
 ## 7. Upgrade model             choice and reason
 ## 8. Off-chain components      keepers, bots, runbooks, monitoring: inputs they trust
 ## 9. Decisions                 links to ADRs
@@ -40,27 +63,76 @@ Source: docs/prd/original.md (unedited). Status: draft | confirmed by <who> on <
 
 ```
 # ADR-NNN <decision>            Status: proposed | accepted <date> by <who> | superseded by ADR-MMM
-Context: the PRD need and the facts (fork spike results) that constrain it
-Options: A / B / C, each with trade-offs (custom code, lock risk, trust, cost, what it rules out later)
+Context: the PRD need and the facts (fork spikes) that constrain it
+Options: A / B / C with trade-offs (custom code, lock risk, trust, cost, what it rules out)
 Decision and reason
 Consequences: requirements, tests and risks it creates
 ```
 
-## Gate 1 decision brief (one page)
+## TRD tables
 
-```
-Decide: 1) <architecture decision> 2) <business decision> ...
-For each: options | consequence | recommendation (first) | measured evidence (prototype, fork, simulation)
-Detail questions with defaults: Q-07..Q-19 (reply "use the recommendations" to accept all)
-Design review: N findings, M folded into options, K open below
-Speculative work already done on the recommended options: ...
-```
+Requirement:
+
+| ID | Requirement | Test(s) |
+|---|---|---|
+| WD-01 | `withdraw` never depends on an oracle read | `test_WithdrawWhenFeedStale`, `invariant_exitAlwaysPossible` |
+
+Role and permission matrix:
+
+| Function | Caller | Delay | Risk-reducing only? | Removable by |
+|---|---|---|---|---|
+| `setCap` (lower) | curator | none | yes | owner |
+| `setCap` (raise) | curator | 3d timelock | no | owner |
+
+Deferred scope:
+
+| Feature | Why deferred | Trigger that forces it |
+|---|---|---|
+| Async withdrawal queue | expected withdrawals fit instant liquidity | illiquid share above a set threshold, or public deposits |
+
+Formula table:
+
+| Formula | Where | Rounding (against the caller) | Library |
+|---|---|---|---|
+| shares = assets * supply / totalAssets | deposit | down | OZ `Math.mulDiv(..., Rounding.Floor)` |
+| shares = assets * supply / totalAssets | withdraw (assets given, shares burned) | up | OZ `Math.mulDiv(..., Rounding.Ceil)` |
+| debt = principal * index / 1e18 | accrue | up | Solady `mulDivUp` |
+| custom curve f(x) | pricing | ? | none: Halmos and review target |
+
+Upgrade model:
+
+| Contract | Model | Reason | Who changes what, with what delay | Time users need to exit (must be shorter than the delay) |
+|---|---|---|---|---|
+| Vault | immutable | core logic is stable; flexibility comes from swappable modules | none | n/a |
+| Adapter | immutable + timelocked setters | integration addresses change upstream | curator, 3d; limits lowered at once | < 1d |
+
+Third-party dependency (verdict per row: OK if bounded DoS with recovery, redesign if a permanent lock is possible):
+
+| Dependency | What its admins can change | Delay | Worst case for our funds | Recovery |
+|---|---|---|---|---|
+| DEX router | replace router, pause | none | swaps revert (DoS) | timelocked `setRouter`; exit via another venue |
+| Price feed | deprecate | announced | stale price blocks valuation | exit path does not read the feed |
+
+Exit liquidity:
+
+| Route | Size | Quote received | Depth | Cap derived |
+|---|---|---|---|---|
+| collateral -> stablecoin -> USDC | 1M | 0.999 | ok | ceiling 1-2M |
+| same | 5M | 0.778 | thin | |
+
+Invariants:
+
+| ID | Property | Handler actions |
+|---|---|---|
+| INV-01 | recorded positions equal assets actually held, within rounding | deposit, allocate, deallocate, accrue, donate |
+| INV-02 | after any sequence, every holder can exit | all |
+| INV-03 | allowances to venues are zero between calls | all |
 
 ## Traceability matrix
 
 | Original § | PRD § | TRD ID | Component | Tests |
 |---|---|---|---|---|
-| §4 | 4.2 | CARRY-05 | BtcCarryAdapter | test_Rebalance..., invariant_exitAlwaysPossible |
+| §4 | 4.2 | WD-01 | Vault | test_WithdrawWhenFeedStale, invariant_exitAlwaysPossible |
 
 ## Delivery plan (`docs/plan.md`)
 
@@ -68,77 +140,21 @@ Speculative work already done on the recommended options: ...
 Status: proposed | signed at Gate 2 by <who> on <date>
 | # | Slice (one PR) | Requirement IDs | Acceptance tests | Depends on | Risk it retires | Done when |
 |---|---|---|---|---|---|---|
-| 1 | AdapterBase + custody adapter | ADP-01..05, CUST-01..04 | unit, fuzz, INV-01/02 | - | valuation never reverts | suite + lint green, audit-lite PR pass |
-Milestones: M1 after slice 3 (full-scope audit-lite, fork rehearsal), M2 testnet, M3 external audit
+| 1 | Vault core + first adapter | VLT-01..05, ADP-01..04 | unit, fuzz, INV-01/02, fork | - | valuation never reverts | CI green, audit-lite PR pass |
+Milestones: M1 after slice 3 (full-scope audit-lite, fork rehearsal), M2 testnet, M3 external audit, M4 mainnet
+CI: workflow, profiles, archive RPC secret, fork caching, static analysis
 Budget per milestone: ...
 Deferred: ...            Open risks carried: ...
 ```
 
-## Open questions (until sign-off)
-
-| # | Source | Question | Options and consequence | Recommendation | Owner | Status |
-|---|---|---|---|---|---|---|
-| Q-01 | orig §4 "keepers rebalance when needed" | Who may call `emergencyDelever`, and when? | anyone (liveness, griefing risk) / keeper only (needs a live keeper) | keeper only, plus permissionless after 24h | human | open |
-| Q-02 | orig §3 "USDC vault" | Is the vault asset fixed to USDC, or will ETH/BTC vaults follow? | fixed (simpler) / generic asset (no rewrite later) | generic asset | human | open |
-
-## Decision log
-
-| Date | Decision | Reason | Requirements changed | Decided by |
-|---|---|---|---|---|
-| 2026-10-10 | Rebalancing goes through one `rebalance()`; no permissionless delever | fewer entry points, keeper is monitored | CARRY-03, CARRY-07 | product owner |
-
 ## Spec sign-off
 
-| Version / commit | Signed off by | Date | Assumptions accepted at sign-off |
-|---|---|---|---|
-
-## Requirement
-
-| ID | Requirement | Test(s) |
-|---|---|---|
-| WD-01 | `withdraw` never depends on an oracle read | `test_WithdrawWhenFeedStale`, `invariant_exitAlwaysPossible` |
-
-## Deferred scope
-
-| Feature | Why deferred | Trigger that forces it |
-|---|---|---|
-| Async withdrawal queue | Few, known investors | More than two illiquid venues, or a public deposit |
-
-## Formula table
-
-| Formula | Where | Rounding | Library |
-|---|---|---|---|
-| shares = assets * supply / totalAssets | deposit | down (favours vault) | OZ `Math.mulDiv(..., Rounding.Floor)` |
-| debt = principal * index / 1e18 | accrue | up | Solady `mulDivUp` |
-| custom curve f(x) | pricing | ? | none: flag for Halmos + review |
-
-## Upgrade model
-
-| Contract | Model | Reason | Who can change what, with what delay | User exit window |
+| Version / commit | Gate | Signed off by | Date | Assumptions accepted |
 |---|---|---|---|---|
-| Vault | immutable | upstream vault is immutable; flexibility comes from swappable adapters | none | n/a |
-| Adapter | immutable + timelocked setters | integration addresses change upstream | curator, 3d timelock; limits lowered instantly | > 3d |
 
-## Third-party dependency
+## Findings index (`docs/findings.md`, committed)
 
-| Dependency | What its admins can change | Delay | Worst case for our funds | Our response / recovery |
-|---|---|---|---|---|
-| DEX router | replace router, pause | none | swap reverts (DoS) | timelocked `setRouter`; exit via other venue |
-| Oracle feed | deprecate feed | announced | stale price blocks valuation | exit path does not read the feed |
-
-Verdict per row: OK (bounded DoS with recovery) / redesign (permanent lock possible).
-
-## Exit liquidity
-
-| Route | Size | Quote received | Depth | Cap derived |
-|---|---|---|---|---|
-| PT -> underlying -> USDC | 1M | 0.999 | ok | ceiling <= 1-2M |
-| same | 5M | 0.778 | thin | |
-
-## Invariants
-
-| ID | Property | Handler actions |
-|---|---|---|
-| INV-01 | sum of recorded positions == assets actually held (within rounding) | deposit, allocate, deallocate, accrue |
-| INV-02 | after any sequence, every holder can exit | all |
-| INV-03 | token allowances to venues are zero between calls | all |
+| ID | Severity | Layer | Status | Fixing commit | Regression test | Note |
+|---|---|---|---|---|---|---|
+| F-01 | High | code | fixed | abc1234 | test_Regression_DustCannotFlipSettlement | |
+| F-04 | Low | spec | accepted | | test_Regression_ExitMayUseReservedCash | intended; spec amended |

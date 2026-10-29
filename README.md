@@ -50,19 +50,18 @@ Phases are artifacts, not a pipeline: a failed replay sends you back to root cau
 
 ## solidity-dev-loop
 
-A development loop for production Solidity that holds user funds, distilled from two real projects (a Morpho Vault V2 adapter system and a Pendle-PT lending pool) and backtested against their incident history. One invariant governs every step: **user funds can never be seized or permanently locked**; bounded DoS with a recovery path is acceptable.
+A development loop for Solidity systems that hold user funds, distilled from two production projects and backtested against their incident history. One invariant governs every step: **user funds can never be seized or permanently locked**; bounded DoS with a recovery path is acceptable.
 
-**Flow** — five phases, each with an exit gate:
+**Flow** — four phases, each with an exit gate:
 
-1. **Spec and design, two human gates** — the original requirements stay unedited. Before Gate 1 the agent works in parallel: an enriched PRD traced to the original, open questions derived from it and ranked (architecture-shaping vs detail with defaults), fork spikes and liquidity research, two or three architecture options prototyped and measured, and an independent spec and design review with economic simulation. Gate 1: the human answers and chooses. Then TRD, architecture, ADRs, delivery plan and traceability matrix, reviewed again. Gate 2: the human signs off spec and plan together. Small changes get one light gate; amendments are deltas.
-2. **Acceptance tests first** — unit, fuzz, invariant (with adversarial handlers), fork tests against every real dependency running in CI, regression, and Halmos.
-3. **Whole slices** — one complete vertical slice per PR; arithmetic only through libraries.
-4. **Deploy and operations** — scripts, verifiers and runbooks are in scope and audited.
-5. **Verify** — **audit-lite**: a light profile of `contract-security-audit` run by independent subagents (auditor, validator, retester, each with a fresh context that never sees the implementer's reasoning). Diff scope per PR with the same model, full scope at milestones with two auditors on different models that cross-validate; PoCs land in `test/` as regression tests; only Critical/High findings stop for a human.
+1. **Spec and architecture, two human gates.** The original requirements stay unedited. Before Gate 1 the agent works in parallel: an enriched PRD traced to the original, ranked open questions, fork spikes and exit-liquidity research, architecture options (prototyped where they differ in lock risk or custom code), and an independent design review. Gate 1: the human answers and chooses. Gate 2: the human signs off TRD, architecture and delivery plan together. Small features get one light gate, amendments are deltas, existing codebases start with a reconstructed spec.
+2. **Slices, test-first.** Each slice is one PR built as an inner loop: unit, fuzz, invariant (with adversarial handlers), fork tests against the real protocols, Halmos; arithmetic only through libraries; `src/` comments state behaviour, never development history.
+3. **Deploy and operations.** Scripts, verifiers, runbooks and bots are in scope and audited.
+4. **Verify.** **audit-lite**, a light profile of `contract-security-audit`: auditor, validator and retester as separate fresh subagents (two models at milestones), PoCs that become regression tests, a committed findings index; only High and above stops for a human.
 
-Findings found late are sent back to the layer they came from: a design-layer problem changes the spec first, not just the code. The loop runs the whole task and stops only when it converges (no new confirmed Medium+ finding, at most three audit rounds) or needs the human's authority; simple blockers such as a missing RPC are worked around with public services.
+Design-layer findings go back as a spec delta through one human gate. The audit-fix-retest cycle ends on convergence or after three rounds, and the loop works around simple blockers instead of stopping.
 
-**Bundled** — `references/templates.md` (requirement, deferred-scope, formula, upgrade-model, dependency, exit-liquidity, invariant tables), `references/checklists.md` (adversary, valuation and degraded-mode, exit liquidity, deploy and ops), `references/audit-lite.md` (roles, scope, what to load from `contract-security-audit`, severity gate, feedback format).
+**Bundled** — `references/templates.md` (PRD, questions, decision brief, architecture, ADR, TRD tables, traceability, plan, findings index), `references/checklists.md` (adversary, valuation, exit liquidity, deploy, CI), `references/audit-lite.md` (roles, modes, vocabulary, severity, feedback format).
 
 ---
 

@@ -1,172 +1,145 @@
 ---
 name: solidity-dev-loop
-description: Development loop for production Solidity / EVM smart contracts that hold user funds - spec and design, acceptance tests first (unit, fuzz, invariant, fork against the real third-party protocols, regression, Halmos), whole-slice implementation, deploy and ops, independent audit and minimal fixes. Use it whenever the user starts, designs, plans, extends or hardens a contract system (vault, adapter, lending pool, collateral, oracle, settlement, governance/timelock, upgradeability), adds a third-party protocol integration or a new asset, writes deploy scripts, asks how to test or verify contracts, or is triaging and fixing audit findings, even if they do not mention a "loop" or "process". Not for one-off Solidity syntax questions or for auditing someone else's deployed protocol (use an audit skill for that).
+description: Development loop for Solidity / EVM systems that hold user funds, from requirements to deployment - spec and architecture agreed with the human at two gates, slices built test-first (unit, fuzz, invariant, fork against the real protocols, Halmos), deploy and ops, independent audit by subagents with bounded fix rounds. Use it for multi-step work on a funds-holding system: starting or extending one, designing a vault, adapter, lending pool, collateral, oracle, settlement or governance, adding a protocol integration or asset, taking over an existing or already-deployed codebase, writing deploy scripts, or fixing findings from an audit, even if the user never says "loop" or "process". Not for single Solidity or Foundry questions, and not for auditing a protocol you are not building (use contract-security-audit for that: it finds, this skill builds and fixes).
 ---
 
 # Solidity development loop
 
-Contracts that hold funds are expensive to get wrong and often impossible to patch. In two real projects most rework came from four sources: third-party assumptions that were never checked on chain, a design-layer decision patched at the code layer, a fix that added more attack surface than it removed, and deploy / ops steps treated as outside the system. This loop pushes decisions early and makes every later step check against something written down.
+Contracts that hold funds are expensive to get wrong and often impossible to patch. Most rework in real projects comes from four sources: third-party assumptions never checked on chain, a design-layer decision patched in code, a fix that adds more surface than it removes, and deploy or ops steps treated as outside the system. This loop settles decisions early and makes every later step check against something written down.
 
 Guiding principle: **less is more.** The fewest contracts, the least state, the smallest change that meets the spec. Every line of custom code is audit surface.
 
 ## How to use this skill
 
-1. Work out which phase the user is in (a new system, a new feature, integration or asset, a test plan, implementation, deployment, or audit findings) and start there. Do not force a finished project back through phase 1, but if the request reveals a design-layer gap, say so.
-2. For each phase, produce the artifacts it names, then check the exit gate before moving on.
-3. When a later phase finds a problem, classify which layer it came from and go back to that layer (see "Loop back to the right layer").
-4. Respect the project's own rules first (CLAUDE.md, spec, requirement IDs). This skill is the default where the project is silent.
+1. **Find the entry point.** New system or new protocol integration: phase 1 in full. Small feature: the light gate; amendment to a signed spec: a delta at one gate (both in phase 1, "Scale"). Existing codebase: "Brownfield entry" first. Implementation, deployment or findings already under way: start at that phase, and say so if the request exposes a design-layer gap.
+2. In each phase, produce its artifacts and check its exit gate before moving on.
+3. A problem found late goes back to the layer it came from ("Loop back to the right layer").
+4. The project's own rules (CLAUDE.md, spec, IDs) win; this skill is the default where they are silent.
 
-Read `references/templates.md` when producing design artifacts, `references/checklists.md` for the adversary, valuation and deploy checklists, and `references/audit-lite.md` before running an audit or verification pass.
+References: `references/templates.md` (every document and table), `references/checklists.md` (adversary, valuation, liquidity, deploy, CI), `references/audit-lite.md` (independent design and code review by subagents).
 
 ## Non-negotiable invariant
 
-**User funds can never be seized or permanently locked.** Every choice below is judged against this. Temporary denial of service is acceptable when a recovery path exists (a timelocked setter, a `migrate` to a successor, another exit route); a permanent lock is not. A liveness fix must never relax a safety bound: "the oracle is stale, so accept any output" turns a stuck epoch into theft.
+**User funds can never be seized or permanently locked.** Every choice is judged against this. Temporary denial of service is acceptable when a recovery path exists (a timelocked setter, migration to a successor contract, another exit route); a permanent lock is not. A liveness fix must never relax a safety bound: "the oracle is stale, so accept any output" turns a stuck withdrawal into theft.
 
-## Phase 1: Spec and design (the most important step)
+## Brownfield entry (existing or deployed code)
 
-**Human in the loop, two gates.** This phase is where the human decides; later phases mostly execute. In past projects the costliest rework came from questions settled late: access and API choices changed after the first implementation, a spec scoped to one chain and two assets when the product meant many, an asset listed that had no live market, deferred scope built anyway, an architecture rewritten the day it was finished. The human decides at two gates; between them the agent does all the work it can in parallel, so the human never waits on the agent and the agent never idles waiting on the human.
+Before changing an existing system: reconstruct the spec from code, docs and deployed state (requirement IDs and invariants for what the code actually guarantees); write characterisation tests that pin current behaviour; for deployed contracts read the live configuration, roles, and for proxies the storage layout and initializer state. Mark every behaviour the reconstruction cannot justify as an open question. Then take the reconstructed spec through Gate 2 (no Gate 1 package needed unless the change itself is new architecture) before the first change.
+
+## Phase 1: Spec and architecture, two human gates
+
+The human decides at two gates; between them the agent works in parallel, so neither waits on the other.
 
 ```
-original requirements (unedited)
-  -> [agent, in parallel] enriched PRD + ranked open questions
-                          + fork spikes, dependency and liquidity research
-                          + 2-3 architecture options, each prototyped and measured
-                          + independent spec and design review (with economic simulation)
-  -> Gate 1 (human): answer the questions, choose the architecture      one review package
-  -> [agent] TRD + architecture + ADRs + delivery plan + traceability matrix
-             + a second design review of the chosen design
+original requirements (never edited)
+  -> [agent, parallel] enriched PRD + ranked open questions
+                       + fork spikes, dependency and exit-liquidity research
+                       + architecture options (prototyped where they differ in lock risk,
+                         custom code or third-party behaviour)
+                       + independent design review (audit-lite, design mode)
+  -> Gate 1 (human): answer the questions, choose the architecture      one package
+  -> [agent] TRD + architecture + ADRs + delivery plan + traceability, reviewed again
   -> Gate 2 (human): sign off spec and plan together                     one sign-off
-  -> autonomous loop; milestone reports; stop only for exceptions
+  -> autonomous loop; milestone reports; stops only per "When the loop stops"
 ```
 
-**Scale the process to the change.** The full two-gate flow is for a new system or a new protocol integration. A small feature or fix inside a signed spec gets one light gate: a short plan with its open questions, confirmed once. An amendment to a signed spec is a delta (changed PRD and TRD sections, affected ADRs, plan impact) reviewed at one gate, not a rerun of the whole flow.
+**Scale.** The full flow is for a new system or a new protocol integration. A small feature (a new function, parameter or asset inside the signed architecture) gets one light gate: a short plan with its open questions, confirmed once. A fix that changes no requirement, role, parameter range or architecture needs no gate. An amendment to a signed spec is a delta (changed PRD and TRD sections, affected ADRs, plan impact) reviewed at one gate.
 
-### Before Gate 1 (agent work, in parallel)
+### Before Gate 1
 
-- **Keep the original requirements untouched; write an enriched PRD next to them.** The user's requirement document or PRD is the source and is never edited (for example `docs/prd/original.md`). Write `docs/PRD.md` from it: every statement made explicit (actors, flows, numbers, states, failure cases, non-goals), each traced to the original section, and everything added marked as derived or as an assumption linked to an open question. The gap between original and enriched PRD is what the human must confirm.
-- **Derive the open questions from the document, then rank them.** Read the original for vague words ("safe", "fast", "low risk"), missing numbers, undefined actors or roles, flows with no failure path, conflicts, implicit third-party assumptions, and anything the product clearly varies (assets, chains, number of vaults). Each question carries its source pointer, options, consequences and your recommendation. Split them: **architecture-shaping** questions the human must answer, and **detail** questions with a default the human can accept wholesale ("use the recommendations for the rest"). Do not ask what the code, the docs or a fork read can answer.
-- **The human decides business and risk; the agent decides engineering defaults.** The generic floor of human decisions, which the PRD questions extend: scope and what is deferred, users and trust model, roles and who holds them, assets, chains and venues, risk appetite (caps, ceilings, LTV, slippage), economics and fairness rules, upgrade model, timelock lengths, which third-party risks are accepted. Agent: choices with a conventional answer (library, rounding direction, naming, test layout), stated in the spec so the human can overrule them.
-- **Research that does not depend on the answers runs now:** fork spikes on every third-party assumption, admin powers of each dependency, exit-liquidity quotes, mock-versus-fork checks, CI and test scaffolding. Work that does depend on an answer may start on the recommended option, marked speculative, and is discarded if the human chooses otherwise.
-- **Architecture options are prototyped, not argued.** For each major decision (contract topology and reuse versus custom, how each protocol is integrated, sync versus async, where valuation and accounting live, upgrade model, roles and governance, off-chain keepers, bots and runbooks), give two or three options. Build each as a throwaway prototype in parallel subagents and measure it on a fork: custom code size, gas, real third-party behaviour, and whether any path can lock funds permanently. The options in the review package carry those numbers.
-- **Independent spec and design review before the human sees it.** A fresh subagent that did not write the PRD or the options reviews them adversarially, the design-layer form of audit-lite (`references/audit-lite.md`): contradictions, untestable requirements, missing failure paths, trust assumptions, and a numeric simulation of each actor's outcome (late borrower, first mover out, exiting LP, keeper) in normal, stressed and default cases. In past projects a design review of this kind found the structural economic defects (mutualised interest, phantom NAV, floating rates on fixed-term debt) that no code audit would. Fold its findings into the package or into the questions.
-- **Gate 1 package:** a one-page decision brief (what to decide, the recommendation, the consequence of each choice), the ranked questions, the architecture options with measurements, the enriched PRD and the review findings. Aim for a review the human can finish in about half an hour.
+- **Enriched PRD next to the unedited original.** The original requirements (for example `docs/prd/original.md`) are the source and are never edited. `docs/PRD.md` makes every statement explicit (actors, flows, numbers, states, failure cases, non-goals), traced to the original; everything added is marked derived or an assumption tied to a question.
+- **Open questions derived from the document, then ranked.** Look for vague words ("safe", "low risk"), missing numbers, undefined actors, flows without a failure path, conflicts, implicit third-party assumptions, and what the product clearly varies (assets, chains, number of instances). Each question carries its source, options, consequences and your recommendation. Architecture-shaping questions need an answer; detail questions carry a default the human can accept wholesale. A conflict found later goes onto this list rather than stopping the work. Never ask what code, docs or a fork read can answer.
+- **Who decides.** The human: scope and deferrals, users and trust model, roles and holders, assets, chains and venues, risk appetite (caps, LTV, slippage), economics and fairness, upgrade model, timelock lengths, accepted third-party risks, plus whatever the PRD questions add. The agent: choices with a conventional answer (library, rounding, naming, test layout), written into the spec so the human can overrule them.
+- **Research that does not depend on the answers runs now:** fork spikes on every third-party assumption (does the token output what you think, is the market live, what do admins control, what does the keeper really execute), exit-liquidity quotes, mock-versus-fork checks, CI scaffolding. Work that depends on an answer may start on the recommended option, marked speculative.
+- **Architecture options.** For each major decision (topology and reuse, protocol integration, sync or async flows, where accounting and valuation live, upgrade model, governance, off-chain keepers and runbooks) give two or three options with trade-offs against the PRD and the invariant. Prototype in parallel subagents only the decisions whose options differ in lock risk, custom code size or third-party behaviour, and measure them on a fork; argue the rest in the ADR.
+- **Independent design review** (audit-lite, design mode) before the human sees the package.
+- **Gate 1 package:** a one-page decision brief, the ranked questions, the options with measurements, the enriched PRD and the review findings; about half an hour to review.
 
-### Between the gates (agent work)
+### Between the gates
 
-- **Record every answer** in a decision log (date, reason, requirements changed) and each architecture choice as an ADR (`docs/adr/NNN-<title>.md`), summarised in `docs/architecture.md`, so decisions are not re-argued.
-- Write the TRD (artifacts below), the architecture document, the delivery plan and a traceability matrix: original section -> PRD section -> TRD ID -> component -> tests. Run a second independent design review on the chosen design.
+Record every answer in the decision log and every architecture choice as an ADR summarised in `docs/architecture.md`. Write the TRD from the artifact list below, the delivery plan and the traceability matrix (original -> PRD -> TRD ID -> component -> tests), then run a second design review on the chosen design. Templates for all of these are in `references/templates.md`.
 
-### Gate 2 (human signs off spec and plan together)
+**TRD artifacts.** Requirements as testable items with IDs; role and permission matrix (no role can veto its own removal; emergency powers only reduce risk); deferred scope with triggers; reuse map (audited libraries, unmodified upstream contracts, standard governance such as `TimelockController` or `AccessManager`); formula table; valuation rule with degraded-mode matrix; per-actor economics; upgrade model; third-party dependency table; recovery paths; exit paths and exit liquidity; adversary model. Rules that shape them:
 
-Present the TRD, architecture and plan with the remaining assumptions highlighted; the agent never self-approves. After sign-off the loop runs without per-step approval. Back to the human only for: a change to a requirement, a role, a parameter range, the architecture or the accepted risks; a plan-level change (a slice added, dropped or merged, risk retired later, a milestone moved, the budget exceeded); and the exceptions in "When the loop stops". A fix inside the signed spec, or reordering inside a slice, does not need it.
+- **Rounding:** every conversion rounds against the caller (ERC-4626: `deposit`/`redeem` round down, `mint`/`withdraw` round up; debts up), through library math (`Math.mulDiv` with `Rounding`, Solady `FixedPointMathLib`, `SafeCast`). A formula with no library is a Halmos and review target.
+- **Valuation:** choose and bound the on-chain price source by what the exit really returns, measured off-chain on a fork. Never use a same-block manipulable quote (spot reserves, a single-block swap quote) in a view that gates deposits, borrows, liquidations or share price. The valuation view never reverts.
+- **Upgrade model, chosen from the business:** immutable, immutable with timelocked setters, immutable core with replaceable modules, or proxy. Under any model no operational role can move user funds. Under a proxy the upgrade power can, so it sits behind a timelock longer than the time users need to exit, separate from operations, and the residual trust is disclosed.
+- **Dependencies are judged by the worst case for exits:** permanent lock means redesign; bounded DoS with recovery is fine. Liquidity migrating, markets dying, parameters being cut and depegs count as dependencies too.
+- **Recovery paths are features:** migration, emergency setters, write-off and impairment get the same threat model and tests as the main flow.
+- **Illiquidity is a lock:** caps come from measured exit depth across every position that shares a route or underlying.
 
-### TRD artifacts (written between the gates, informed by the research before Gate 1)
+**Delivery plan** (signed at Gate 2): vertical slices, each one PR with its contract, tests and docs, riskiest first; per slice the requirement IDs, acceptance tests and definition of done; milestones (full-scope audits, fork rehearsal, testnet, mainnet), budget per milestone; CI setup and the secrets it needs; deferred scope and open risks.
 
-1. **Requirements as testable items with IDs** (for example `CARRY-05`). Tests, docs and findings cite them. If the spec conflicts with itself or with reality, stop and ask; do not guess.
-2. **Role and permission matrix**: every privileged function, who may call it, with what delay, and whether it can only reduce risk. Get it signed off before implementation; access and API choices changed after the first implementation are expensive. Check that no role can veto its own removal.
-3. **What is not built.** Deferred features and the trigger that forces them in. Do not build deferred scope "while we are here". Keep the design generic where the product already varies (asset, decimals, chain, number of vaults), so configuration is data.
-4. **Reuse before building.** Map every component to an audited library or existing protocol (OpenZeppelin, Solady, an unmodified upstream vault). Custom code is only glue. This includes governance: `TimelockController` or `AccessManager`, not hand-built stage/execute pairs.
-5. **Verify every third-party assumption on a fork before freezing the design.** Run a short spike against the real deployed contracts at a pinned block: does the token actually output what you assume, is the market active, does the call accept a whole-balance amount, what does the keeper really execute, which parameters can the protocol's admins change. Designs built only on mocks have shipped with a default path that could never work and an oracle that did not exist.
-6. **Formula table.** Every formula, its rounding direction (assets down, debts up, always favouring the protocol) and the library that implements it (`Math.mulDiv` with `Rounding`, Solady `FixedPointMathLib`, `SafeCast`, ERC-4626 conversions). A formula with no library is a top review and Halmos target.
-7. **Valuation rule.** Value positions at what the exit actually returns (swap output, redemption rate from protocol state), not at an oracle mark, and measure the chosen feed against the market on a fork. Write a degraded-mode matrix: for each external read, what each function does when it fails, is stale, or returns garbage. See `references/checklists.md`.
-8. **Economic review per actor.** For each actor (early and late depositor, first mover out, LP exiting, borrowers of different tenors, keeper, liquidator), what they gain or lose in normal, stressed and default scenarios. Back each fairness claim with a numeric example or PoC. Mutualised losses, phantom NAV and floating rates on fixed-term debt are design bugs, not tuning.
-9. **Upgrade model, chosen from the business.** Immutable, immutable plus timelocked setters, immutable core plus replaceable modules (`migrate`), or proxy. Decide from the users' trust model, logic maturity, integration churn, need for emergency fixes, and re-audit / migration cost; record the reason. Whatever the model: no power can move user funds, changes go through a timelock, users get an exit window longer than the timelock, upgrade and operations roles are separate.
-10. **Third-party dependency table.** For each protocol, oracle, router, keeper: what its admins can change, through what delay, the worst case for our exits, and our recovery. Permanent lock means redesign; bounded DoS with recovery is fine. Dependencies are not only code: liquidity migrates, markets die, risk parameters get cut, assets depeg.
-11. **Recovery paths are features.** `migrate`, emergency setters, write-off and impairment paths get the same threat model and tests as the main flow; they are used in the worst conditions (feeds down, venue paused) and are a common source of new bugs.
-12. **Exit path and exit liquidity.** Trace how funds leave in every state. The exit must not depend on a price read or replaceable contract that can fail for good unless a timelocked setter or `migrate` restores it. Measure real depth for the exit route at the sizes you intend (for example quotes at 1M and 5M), across all positions that share the same route or underlying, and derive caps from it. Illiquidity is a lock too.
-13. **Adversary model.** Walk `references/checklists.md`: donations and dust to any address (never infer state from raw `balanceOf`), flash and same-block deposits, reentrancy including read-only via callbacks, repeated calls against per-call caps, griefing that blocks batches, caller-supplied routes and calldata, reused approvals. Every caller-supplied input is hostile: enforce floors and arrival checks in the contract.
+### Gate 2
 
-**Exit gate:** the open-questions list is empty or every remaining item is an explicit, human-accepted assumption; Gate 2 is signed; every requirement answers "how is this tested"; every third-party assumption was checked on a fork; every dependency answers "worst case for exits and recovery"; every formula maps to a library or is flagged; the role matrix, valuation rule, economic table and upgrade model have written reasons.
+Present TRD, architecture and plan with remaining assumptions highlighted; the agent never self-approves. After sign-off the loop runs without per-step approval.
 
-## Delivery plan (signed at Gate 2)
+**Exit gate:** Gate 2 signed; open questions empty or explicitly accepted as assumptions; every requirement says how it is tested; every third-party assumption checked on a fork; every dependency has a worst case and recovery; every formula maps to a library or is flagged.
 
-The plan is part of the Gate 2 package (template in `references/templates.md`):
+## Phase 2: Build slices, test-first
 
-- **Slices and order:** the vertical slices (each one PR: contract, tests, docs, dependency entry), their order and dependencies, riskiest first.
-- **Per slice:** the requirement IDs it covers, its acceptance tests (unit, fuzz, invariants, fork), and its definition of done.
-- **Milestones:** where full-scope audits happen, what is deployed where (fork rehearsal, testnet, mainnet), and the budget per milestone. At each milestone the agent reports progress; it does not ask for approval unless something in the plan changed.
-- **Out of the plan:** deferred scope, and the open risks the plan carries.
+Each slice is an inner loop: write the slice's tests, see them fail, implement, get them green, run audit-lite on the PR, merge.
 
-## Phase 2: Acceptance tests first
-
-Turn the requirements into tests before implementing. All layers:
-
-| Layer | Write first | Catches |
+| Layer | What | Catches |
 |---|---|---|
 | Unit | Happy path and every revert path per requirement ID, exact error selector | Logic, access control |
 | Fuzz | Amounts, decimals, prices, timestamps; `bound()` over `vm.assume()` | Boundaries, rounding, overflow |
-| Invariant | Accounting equals real positions; every holder can exit; full exit leaves zero residual at the venue; approvals return to zero; value conservation. Handlers include adversary actions (donations, dust, same-block deposits) | Bugs that appear only across call sequences |
-| Fork | Every third-party interaction against the real contracts at a pinned block, including third-party admin actions (pause, parameter cut, router replacement) and real keeper execution | Wrong assumptions about the protocol; mocks that lie |
-| Regression | One test per finding or incident, running in CI | The same bug returning |
-| Symbolic (Halmos) | Custom core properties: rounding direction, deposit-then-redeem never gains, monotonic share price | Edge cases fuzzing misses |
+| Invariant | Accounting equals real positions; every holder can exit; full exit leaves no residual value at the venue; allowances return to zero; value conservation. Handlers include adversary actions (donations, dust, same-block deposits) | Bugs across call sequences |
+| Fork | Every third-party interaction against the real contracts at a pinned block, including their admin actions (pause, parameter cut, router replacement) and real keeper execution | Wrong assumptions; mocks that lie |
+| Regression | One test per closed finding or incident | The bug returning |
+| Symbolic | Halmos `check_` properties (with a harness that makes state symbolic) on custom core logic: rounding direction, deposit-then-redeem never gains, monotonic share price | Edges fuzzing misses |
 
-Key points:
-- **Fork tests are mandatory for every real third-party dependency.** Mocks encode your assumptions; only the fork shows what the protocol does. Every fork finding then becomes a fix to the mock as well, so mock-based tests stay faithful.
-- **Fork tests must run in CI.** Provide the RPC URL as a CI secret and pin blocks. If a fork test is skipped in CI it covers nothing there, so every security-relevant fork path also needs a unit or regression test with a protocol-faithful mock.
-- Tests assert the spec's properties, not the current behaviour. A test written to "prove" a fallback works can end up asserting the bug.
-- The invariant list is the spec's safety properties made executable; write it now, not after the audit.
-- Halmos runs locally (`uv tool install halmos`, then `halmos --function check_`), no API key. Bounded, and slow on nonlinear math: treat library math as trusted and prove the logic around it. Kontrol and Certora are optional, for large TVL or novel math, usually bought as a service.
+- Fork tests are mandatory for real third-party dependencies, and every fork finding also corrects the mock. In CI they need an archive RPC (fork caching on); where none is available, every security-relevant fork path also gets a test with a protocol-faithful mock.
+- Tests assert the spec's properties, not current behaviour; a test written to "prove" a fallback works can end up asserting the bug.
+- Arithmetic only through the libraries in the formula table. Never edit vendored dependencies; wrap them.
+- **Source code states behaviour, never development history.** Comments and NatSpec in `src/` say what the code does and why, in the present tense. They never cite finding, audit or review IDs, ADR or requirement IDs, PR numbers, dates, or "previously" and "fixed". History lives in commits, PRs, ADRs, the spec, the findings index and test names. Enforce it with a CI grep over `src/` (patterns in `references/checklists.md`).
+- Before every commit: formatter, linter, static analysis (Slither or Aderyn) with findings triaged, contract size under EIP-170, full suite green.
 
-**Exit gate:** every requirement ID has a test; every third-party interaction has a fork test that runs in CI; the invariant list including adversary handlers is reviewed.
+**Exit gate per slice:** its tests green, fork tests included (in CI once the archive RPC secret exists; until then run locally and flagged in the report); lint and static analysis clean or triaged; its requirement IDs covered. At each milestone: every requirement ID in the TRD has a test.
 
-## Phase 3: Implement whole slices
+## Phase 3: Deploy and operations
 
-- One complete vertical slice per PR: contract, tests, docs, dependency-table entry. Avoid many tiny or stacked PRs; they lose context and invite merges that drop tests or land on dead branches. Bundle similar changes.
-- Arithmetic goes through the libraries in the formula table; hand-written math is a review finding unless the table explains why.
-- Never edit vendored dependencies; wrap them. Name things by meaning, not protocol type codes.
-- Formatter, linter (every severity on, and check the config is actually valid) and the full suite before every commit; branch and PR.
+Deploy scripts, verifiers, runbooks and bots are part of the system and in audit scope. Work through the deploy and CI checklists in `references/checklists.md`; the ones most often missed are the full read-back verifier, granting roles before the deployer renounces, and gates attached before any external deposit.
 
-**Exit gate:** all tests pass in CI including fork; lint clean; every requirement ID covered.
+**Exit gate:** a fork rehearsal of the full deployment passes the verifier; runbooks and monitoring reviewed against the adversary checklist.
 
-## Phase 4: Deploy and operations
+## Phase 4: Verify, independent audit, fix
 
-Deploy scripts, verifiers, runbooks and bots are part of the system and in audit scope. See the deploy checklist in `references/checklists.md`. In short: scripts are tested on a fork; the verifier reads back every configured field and has a negative test per field; policy decided in the design (oracle bounds, caps, decimals) is enforced by the script, not by memory; access gates are attached before any external deposit; runbooks never use raw balances an attacker can inflate; configs with real addresses stay local.
+1. Self-check by requirement ID, not line coverage; run Halmos on the custom core.
+2. **Independent audit by subagents** per `references/audit-lite.md`: diff scope per PR, full scope at milestones with two auditors on different models; deploy scripts and runbooks in scope.
+3. Every code finding is reproduced as a PoC before code changes, every design finding by a simulation or prototype; a third party's suggested patch is verified like any other code.
+4. **Fix minimally, or accept the risk.** When every fix adds new findings, a documented accepted risk is legitimate (the human signs it off at High or above).
+5. The PoC lands unchanged as the regression test in the fix's commit; later it may be adapted when the code it covers changes, never silently deleted, and reviewers check diffs and merges for removed tests.
+6. Independent retest of every fix; the findings index in the docs records ID, severity, status and regression test.
+7. Docs, UI and spec match the code: no claimed features that do not exist, no ADR the code does not follow.
 
-**Exit gate:** a fork rehearsal of the full deployment passes the verifier; runbooks and monitoring are reviewed against the adversary checklist.
-
-## Phase 5: Verify, independent audit, fix
-
-1. **Self-check by requirement**, not by line coverage.
-2. **Run Halmos** on the custom core properties.
-3. **Independent audit with fresh context, by separate subagents**: follow `references/audit-lite.md` (an auditor, a validator and a retester, each a fresh subagent that never sees the implementer's reasoning; diff scope per PR, full scope at milestones with two auditors on different models). Include deploy scripts and runbooks in scope. Critical or High findings stop for the user; lower ones the agent fixes or records as accepted risk.
-4. **Reproduce every finding as a PoC test** (on a fork when a third party is involved) before changing code. Unreproduced findings stay "plausible".
-5. **Fix minimally, or accept the risk.** A fix can add more surface than it removes. When every fix introduces new findings, a documented accepted risk is a legitimate outcome (the user signs off when it is Critical or High). A third party's patch for a finding is verified like any other code.
-6. **The PoC becomes a regression test.** Regression tests may be adapted, never silently deleted; reviewers check diffs for removed tests, and merges are checked against what the rehearsal said they would do.
-7. **Independent retest** after fixes: a fresh agent or person who did not write the fix, the full suite including invariants and fork, and a pass over the fix diff.
-8. **Docs, UI and spec match the code**: no claims of features that do not exist, no ADR the code does not follow.
-9. **External audit** before mainnet for anything holding real funds.
-
-**Exit gate:** no open confirmed finding; each fix has a regression test; accepted risks documented (Critical or High signed off by the user); docs match code.
+**Exit gate:** no open finding at Medium or above; Low and Info logged in the findings index; every fix has a regression test; accepted risks documented (High and above signed off); docs match code. Additionally, before the mainnet milestone: an external audit for anything holding real funds.
 
 ## Loop back to the right layer
 
 ```
-spec/design --> tests --> implementation --> deploy/ops --> verify/audit
-     ^                                                          |
-     +------- design-layer problem: change spec/ADR first ------+
-              code-layer problem: fix code + regression test
+spec/architecture --> slices (tests, code) --> deploy/ops --> verify/audit
+        ^                                                          |
+        +---- design-layer: spec delta -> one human gate ----------+
+              code-layer: fix + regression test, no gate
 ```
 
-Before fixing anything found late, ask which layer it came from. A wrong trust assumption, a missing exit path, a wrong valuation rule or an unfair economic outcome is a design problem: update the spec or ADR, then the tests, then the code.
+Before fixing anything found late, classify it. A wrong trust assumption, missing exit path, wrong valuation rule or unfair economic outcome is a design-layer problem: write a spec delta (changed requirements, ADRs, plan impact), take it through one human gate, then change tests and code. A code-layer problem inside the signed spec is fixed directly with a regression test.
 
 ## When the loop stops
 
-The loop finishes the whole task by default; it stops only for a human decision or when it has converged. Without these rules an audit-fix-retest cycle can run forever: auditors always propose something, and a fix can create the next finding.
+The loop finishes the whole task by default and stops only when it converges or needs the human.
 
-- **Converged:** a round with no new confirmed finding at Medium or above ends the cycle. Low and Info findings go to a backlog in the docs; they do not drive another round.
-- **Round cap:** at most three audit-fix-retest rounds per scope (a PR or a milestone). At the cap, stop and hand the human the open list with a recommendation for each.
-- **Reopened twice means wrong layer:** a finding whose fix is rejected twice is a design-layer problem; stop and take it back to the spec with the human.
-- **A fix must not make things worse:** if a fix introduces a finding at least as severe as the one it closes, revert it and choose between an accepted risk and a design change (the human decides when it is High or above).
-- **One tie-break:** when auditor and validator disagree, one fresh validator decides; if they still disagree on something at High or above, the human decides.
-- **Unblock yourself before stopping.** A missing dependency is work, not a reason to halt. Missing RPC for fork tests: use a public endpoint for the chain (read-only, and pin a recent block, since public nodes often lack archive state). Missing ABI, address or protocol behaviour: read the verified source on the explorer, the protocol's docs or its repository. Missing tool: install it the way the project pins tools. Keep working on everything the block does not touch, and list blockers and workarounds in the final report.
-- **Stop only for what needs the human's authority:** private keys or paid API keys, access to private repositories or accounts, spending money, deploying to a live network, or a business question the documents do not answer. Even then, finish every other part of the task first and stop with a precise question.
-- **Flaky tests:** reproduce with the failing seed first; a failure that does not reproduce is reported as flaky and is not a fix target.
-- **Budget:** a milestone has a token or time budget; when it is spent, stop and report progress, open items and what remains.
-
-## Tool stack
-
-Foundry unit, fuzz and invariant tests; fork tests against every real third-party protocol at pinned blocks, running in CI; Halmos for symbolic properties; an independent audit pass with retest; an external audit before mainnet. Kontrol / Certora only when TVL or novel math justify them.
+- **Converged:** a round with no new confirmed finding at Medium or above ends the audit-fix-retest cycle; Low and Info go to the findings index.
+- **Round cap:** at most three audit-fix-retest rounds per scope (a PR or a milestone); at the cap, hand the human the open list with a recommendation each.
+- **Reopened twice:** a finding whose fix is rejected twice is design-layer; take it back as a spec delta.
+- **No worse fixes:** a fix that introduces a finding at least as severe as the one it closes is reverted; choose accepted risk or design change (the human decides at High or above).
+- **Disagreement:** when auditor and validator disagree, one fresh validator decides; if it is still disputed at High or above, the human decides.
+- **Unblock yourself first.** A missing dependency is work: a public RPC for local fork spikes (pin a recent block, since public nodes rarely keep archive state), the explorer's verified source, the protocol's docs or repository for ABIs and behaviour, the project's pinned way to install a tool. Keep working on everything the block does not touch, and list blockers and workarounds at the end.
+- **Stop only for the human's authority:** private or paid keys (including an archive RPC for CI), access to private repositories or accounts, spending money, deploying to any network other than a local fork (testnets included), or a business question the documents do not answer. Finish everything else first, then stop with a precise question.
+- **Flaky tests:** reproduce with the failing seed; one that does not reproduce is reported as flaky, not fixed.
+- **Budget:** Gate 1 preparation (state it when starting) and each milestone have a token or time budget; when spent, stop and report progress and what remains.
 
 ## Output
 
-For a new system or integration: the Gate 1 package first (decision brief, ranked questions, measured architecture options, review findings), then the Gate 2 package (TRD, architecture, ADRs, plan, traceability). For a small change: one light plan with its questions. Always state which exit gates are not met yet. When reviewing an existing system or a proposal: gaps against the gates, ordered by risk to funds, with the layer each belongs to. Answer in the user's language.
+New system or integration: the Gate 1 package, then the Gate 2 package. Small change: one light plan with its questions. Existing system or a proposal: gaps against the exit gates, ordered by risk to funds, each with its layer. Always state which exit gates are not met yet, and answer in the user's language.
