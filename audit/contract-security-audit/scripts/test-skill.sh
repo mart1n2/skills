@@ -230,6 +230,20 @@ done
 grep -Fq 'references/orchestration.md' "$SKILL_DIR/SKILL.md"
 test -s "$SKILL_DIR/references/orchestration.md"
 
+# The skill is a plain security review: no investment framing anywhere in
+# the methodology, triage, catalog or report templates.
+if grep -rIl -i -E 'pre-investment|investment (decision|advice)|investor' \
+    "$SKILL_DIR/SKILL.md" "$SKILL_DIR/references" "$SKILL_DIR/templates" 2>/dev/null | grep -q .; then
+    printf 'investment framing found in skill text\n' >&2
+    exit 1
+fi
+# Catalog sections added from engagement experience must keep their headings
+# (other text cross-references them by number).
+for heading in '### 2.7 Policy Engines' '### 5.6 Relayed Authorizations' '### 6.7 Oracleless' \
+    '### 9.5 Authentication Paths' '### 9.6 Proof-Gated Pools' '### 13.6 Adapters' '### 13.7 Commit-Reveal'; do
+    grep -Fq "$heading" "$SKILL_DIR/references/metrics-evm.md"
+done
+
 grep -Fq 'Use `templates/audit-report.md` by default.' "$SKILL_DIR/SKILL.md"
 grep -Fq 'Generate `templates/external-audit-report.md` only when the user explicitly asks' \
     "$SKILL_DIR/SKILL.md"

@@ -836,6 +836,7 @@ Distinct from A.3: A.3 traces *who reaches* a mutation; D traces *which from-sta
    - Chain-specific behaviors: opcode availability, gas semantics, sequencer feeds (L2), account model differences (Solana/Move)
    - Confirm trusted addresses are correct per chain
 3. **Sibling function diff** — when a contract has parallel functions (`deposit` and `depositFor`, `swap` and `swapExactInput`), diff them: a check present in one and absent in the other is suspect.
+4. **Deployed versus repository** — when the live code differs from the audited revision (several live revisions behind one interface, a legacy copy next to a patched one, files absent from the repository), record the difference in `target-lock.md` as a scope statement and audit the deployed revision; the difference is not itself a finding.
 
 **Output deliverable:** Diff summary with risk-tiered classification.
 
@@ -853,8 +854,15 @@ Distinct from A.3: A.3 traces *who reaches* a mutation; D traces *which from-sta
    - Bridge: message delayed, replayed, mis-routed
    - Aggregator/router: partial fill, slippage breach, callback re-entry
    - Liquidity source: pool drained, paused, price-impact extreme
+   - Third-party admin action: token freeze or blacklist, dependency pause or
+     upgrade, parameter change, router or market deregistration
 2. **Per failure mode, trace the consequence:** graceful revert (acceptable) / silent consumption (critical) / state corruption (critical) / stuck funds (serious).
 3. **Per critical consequence, identify mitigation:** fallback source, pause + recover, bounded staleness, try/catch, multi-source aggregation.
+4. **Per third-party admin action, ask two questions:** can users still exit,
+   and can the protocol still recognise the loss? A guard that forbids both
+   the settlement path and the write-off path under one third-party action
+   turns an accepted "bounded DoS with recovery" into a permanent-lock
+   candidate.
 
 **Output deliverable:** Failure-mode matrix per dependency.
 
@@ -948,8 +956,10 @@ Checklist:
 6. **Fairness across user classes.** First-depositor advantage (B.5), last-withdrawer dust trap (B.4), snapshot-timing advantage, whales vs dust rounding, ordering/MEV on shared actions (rebalance, harvest, auction).
 7. **Griefing economics.** Can an attacker impose cost on others or the protocol *cheaply* with no direct profit motive? Lockout-extension (ladder Q27), queue/mempool spam, forcing an unbounded loop, dust-donation to break first-depositor math, blocking a withdrawal path.
 8. **Self-dealing parameter power.** Even legitimately-held admin/keeper powers: can a parameter change (fee, rate, cap, oracle source) be applied *retroactively* to in-flight positions, or timed against a known user action, to extract value? (This is the economic half of E's trust map.)
-9. **The "why would the team build it this way?" test.** For each surprising design choice, ask whether it benefits the team/insiders at users' expense (mint authority, withheld emissions, asymmetric fees, exit restrictions). Pre-investment audits especially must surface design-level extraction, not just bugs.
+9. **The "why would the team build it this way?" test.** For each surprising design choice, ask whether it benefits the team/insiders at users' expense (mint authority, withheld emissions, asymmetric fees, exit restrictions). A security review surfaces design-level extraction, not just bugs.
 10. **Redemption / subscription fairness in liquidity-tiered or multi-asset vaults.** When mint and redeem price at a *blended* NAV that counts illiquid / locked / impaired positions at par (X.3 item 8), and payouts draw the liquid bucket first (idle → liquid legs → illiquid last) or first-come-first-served, the design bakes in a first-mover redemption advantage: early redeemers exit at full paper value out of the *shared* liquid buffer, while the illiquidity or impairment is socialized onto slow and last-out holders — and new depositors mint at the inflated price, subsidizing incumbents. No manipulation is required (ordinary net outflow does it); a rational actor can also *manufacture* the trigger (push a sub-vault's utilization up, front-run a pending write-down) and win the run they started. The same "quoted price the reserve cannot honor for the tail" shape recurs in subsidized / partial-reserve bonding curves (early sellers exit against the reserve; the tail cannot). Fix families to look for: realizable-value pricing (`min(marked, liquidity-adjusted)`), pro-rata draw across *all* legs (not liquid-first), async / queued redemption (ERC-7540), exit fee / swing pricing, deposit gating when unrealizable NAV exceeds a threshold. This is the economic complement of X.3 item 8: X.3 spots the mispricing; J.10 is who profits from it.
+
+11. **Spec-layer findings.** When the specification is silent on, or contradicts, the behaviour a candidate depends on, the result is a spec-layer finding ("decide and write the intended behaviour"), reported at the severity the worse reading implies and routed as a design decision rather than a code patch. An accepted risk recorded in the specification is not a finding unless the recorded acceptance is wrong about the mechanism or its bound; pooled interest that is split pro-rata to a different base than the one that earned it, or a holdback that mutualises one borrower's cost onto another, is the shape to look for.
 
 *Validation:* Beanstalk ($181M, governance-economics — flash-loaned voting weight was the *intended* voting mechanism, used adversarially); recurring reward-gaming / JIT / deposit-before-distribution extractions; liquidation-incentive failures producing protocol-level bad debt; illiquidity-blind vault-of-vaults NAV + liquid-first redemption enabling first-mover socialization (~$6M-class).
 
@@ -1287,16 +1297,51 @@ finding caps at Medium no matter how novel the mechanism or how elegant the chai
 | **Mempool visibility** | Front-runnable / private | Affects exploitation race |
 | **Detection latency** | Immediate (event) / delayed (off-chain monitor) / silent | Affects response window |
 
-**Tiers (calibrate from impact and prerequisites; these are examples, and the engagement's own taxonomy takes precedence when one is supplied):**
+**Tiers (default taxonomy when the engagement supplies none; the engagement's
+own taxonomy takes precedence):**
 
-- **Critical** — permissionless or realistically attainable path to arbitrary/near-total asset loss: unbounded mint, insolvency, drain of pooled funds, permanent protocol-wide freeze of assets, or an admin/governance takeover that immediately reaches those funds; typically irreversible and requiring no trusted-role compromise.
-- **High** — material but bounded or recoverable asset loss: repeatable market-state extraction, a capped drain, loss confined to one asset/market, or a fund-reaching path with feasible but non-trivial prerequisites.
-- **Medium** — no demonstrated asset-loss path, or loss so small/conditional that it is not material: authorization or integrity violation without value at stake, temporary liveness/freeze, griefing without extraction, dust-level or single-user bounded loss behind substantial prerequisites. Merely assuming an already-trusted role is compromised is a threat-model dependency, not automatically a vulnerability.
-- **Low** — minor operational or correctness impact with no material fund, control, integrity, or sustained-liveness consequence.
+- **Critical** — a permissionless path (no trusted role, key or signer needed)
+  to arbitrary or near-total asset loss: unbounded mint, insolvency, drain of
+  pooled funds, or a permanent protocol-wide freeze of assets. Typically
+  irreversible. A path that requires a trusted role to act or be compromised
+  is not Critical, however large its reach.
+- **High** — asset loss that is bounded or recoverable, or that requires a
+  privileged key: a repeatable market-state extraction, a capped drain, loss
+  confined to one asset or market, a fund-reaching path with feasible but
+  non-trivial prerequisites, and any privileged-control finding where a single
+  EOA (or a small multisig whose signers are all hot EOAs, with no delay) holds
+  upgrade, admin, signer, mint or parameter authority that reaches funds. Note
+  on such findings that the impact is unbounded but operationally remediable
+  (multisig plus timelock), and that it is the dominant risk until remediated.
+- **Medium** — no demonstrated asset-loss path, or loss so small or conditional
+  that it is not material: authorization or integrity violation without value at
+  stake, temporary liveness loss, griefing without extraction, dust-level or
+  single-user bounded loss behind substantial prerequisites; and privileged
+  control held by a real multisig (independent signers, adequate threshold)
+  without a timelock. Merely assuming an already-trusted role is compromised is
+  a threat-model dependency, not automatically a vulnerability.
+- **Low** — minor operational or correctness impact with no material fund,
+  control, integrity, or sustained-liveness consequence; includes a single-EOA
+  proposer behind an adequate timelock (below).
 - **Informational** — a security-relevant correctness or defense-in-depth item
-  without a demonstrated exploitable consequence. Pure gas, style, or
-  documentation notes remain observations unless the engagement's explicit
-  taxonomy requires reporting them as findings.
+  without a demonstrated exploitable consequence, and any finding in code that
+  is deployed nowhere (state the severity it would carry if deployed). Pure
+  gas, style, or documentation notes remain observations unless the
+  engagement's explicit taxonomy requires reporting them as findings.
+
+**Timelocks.** A privileged action gated by a timelock whose delay meets the
+engagement's stated minimum (commonly 48 hours on mainnet, 24 hours on an L2)
+with no bypass resolves the control finding: the delay, not the key, is the
+mitigant, and a single-EOA proposer behind it is a Low liveness note. What
+still needs verification is whether the exit window is real: an independent
+canceller or guardian, and whether users can actually exit within the delay
+(queued or asynchronous withdrawals and thin secondary liquidity weaken it). A
+delay far below the minimum (an hour) does not resolve it.
+
+**Deployment state.** Severity attaches to mechanism and deployment together: a
+permissionless drain in a contract that is deployed nowhere is Informational
+with its would-be severity stated, and becomes that severity the day it is
+deployed.
 
 Critical findings block deployment; High requires sign-off; Medium tracked. If the
 engagement or bug-bounty program supplies a different taxonomy, follow it, state
