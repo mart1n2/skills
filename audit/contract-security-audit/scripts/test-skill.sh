@@ -1947,6 +1947,42 @@ if command -v zsh >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# Engagement profiles pre-fill the templates without relaxing any gate: every
+# profile's fresh workspace passes --lint, identity rows match byte for byte
+# between scope.md and target-lock.md, and the profile-specific sections exist.
+# ---------------------------------------------------------------------------
+(
+    cd "$TMP_ROOT"
+    for profile in design pre-deploy delta deployed external; do
+        bash "$SKILL_DIR/scripts/init-workspace.sh" "prof-$profile" ethereum "$profile" >/dev/null
+        ws="audit-workspace/prof-$profile"
+        grep -Fq "Profile: $profile" "$ws/README.md"
+        bash "$SKILL_DIR/scripts/triage-check.sh" --lint "$ws" >/dev/null
+        for field in 'Deployment / program / package IDs' 'Deployed bytecode / package hash'; do
+            scope_value="$(grep -F "| $field |" "$ws/scope.md")"
+            lock_value="$(grep -F "| $field |" "$ws/target-lock.md")"
+            test "$scope_value" = "$lock_value"
+        done
+    done
+    grep -Fq 'N/A - pre-deployment' audit-workspace/prof-pre-deploy/scope.md
+    grep -Fq 'N/A - design review' audit-workspace/prof-design/target-lock.md
+    grep -Fq '## Actor Outcomes' audit-workspace/prof-design/model.md
+    grep -Fq '## Baseline' audit-workspace/prof-delta/scope.md
+    grep -Fq '## Reconciled Changes From the Prior Review Baseline' audit-workspace/prof-delta/coverage.md
+    grep -Fq '## Deployment Reconciliation' audit-workspace/prof-deployed/target-lock.md
+    grep -Fq '## Deployment Reconciliation' audit-workspace/prof-external/target-lock.md
+    ! grep -Fq '## Deployment Reconciliation' audit-workspace/prof-pre-deploy/target-lock.md
+    # Re-running init on an existing workspace adds nothing twice.
+    bash "$SKILL_DIR/scripts/init-workspace.sh" prof-delta ethereum delta >/dev/null
+    test "$(grep -c '## Reconciled Changes From the Prior Review Baseline' audit-workspace/prof-delta/coverage.md)" -eq 1
+    if bash "$SKILL_DIR/scripts/init-workspace.sh" prof-bad ethereum bogus >/dev/null 2>&1; then
+        printf 'Unknown profile unexpectedly accepted.\n' >&2
+        exit 1
+    fi
+    test ! -e audit-workspace/prof-bad
+)
+
+# ---------------------------------------------------------------------------
 # Chain support comes from chains.json, not a hardcoded list: a new EVM entry
 # (blockscout or etherscan) is usable by init-workspace without script edits.
 # ---------------------------------------------------------------------------

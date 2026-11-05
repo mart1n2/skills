@@ -44,6 +44,42 @@ selectively. Contract Review's no-build/test rule and Flow's JSON-only/path rule
 belong to their separate scopes; do not import them into the audit workflow.
 Acquisition does not authorize verification submissions or broadcasts.
 
+## Deployment reconciliation (deployed targets)
+
+Deployed code differs from the public repository more often than not: several
+live revisions behind one interface, a legacy mastercopy next to a patched one,
+committed deploy constants that no longer match the live signers. Before any
+deployed claim, reconcile each address on its own and record the result in the
+`Deployment Reconciliation` table of `target-lock.md`:
+
+1. **Code hash per address.** `cast codehash <addr> --block <N>` (or
+   `cast code <addr> --block <N> | cast keccak`). Group addresses by code hash
+   before reading source; audit one source per hash, not one per address.
+2. **Own verification bundle.** Fetch each address's own verified source and
+   metadata; never reuse a sibling's bundle because the names match. Record
+   compiler, optimizer, and the metadata hash it declares.
+3. **Repository match.** Compare the verified source with the repository
+   revision under audit. State one of: byte-identical, differs (list the files),
+   or absent from the repository. "Deployed ≠ repo" is a scope statement to
+   record, not a finding by itself.
+4. **Live getters, not deploy constants.** Read owners, signers, roles,
+   thresholds, delays, oracle addresses and caps from the chain at the pinned
+   block (`cast call`, `eth_getStorageAt`); treat committed deploy scripts and
+   constants files as stale until matched.
+5. **Proxies and factories.** Resolve the implementation slot and the beacon for
+   each proxy; for factory-made instances, resolve the implementation each
+   instance actually points at.
+6. **Encoders and policy engines.** When permissions or orders are produced
+   off-chain (SDK, kit, signer service), replay the encoder's real output
+   through the on-chain decoder on a fork; the two can disagree on types.
+7. **Closed source.** Verify by state and transaction history only (program
+   accounts, signatures, emitted events). Do not simulate admin-impersonating
+   transactions against a live program.
+
+Each row of the reconciliation table names the address, code hash, bundle
+source, repository match, the getters read and the block they were read at.
+Claims that depend on a row inherit its limitations.
+
 ## Counting discipline for on-chain evidence
 
 A count of events, transfers or transactions carries a conclusion ("0 reveals
