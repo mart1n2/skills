@@ -266,9 +266,33 @@ fi
 [ -f "$SKILL_DIR/SKILL.md" ] || { echo "contract-security-audit skill not found: $SKILL_DIR" >&2; exit 1; }
 
 bash "$SKILL_DIR/scripts/compat-check.sh"
-bash "$SKILL_DIR/scripts/init-workspace.sh" "$PROTOCOL" "$CHAIN"
+PROFILE="{design|pre-deploy|delta|deployed|external}"   # default: deployed
+bash "$SKILL_DIR/scripts/init-workspace.sh" "$PROTOCOL" "$CHAIN" "$PROFILE"
 WORKSPACE="audit-workspace/${PROTOCOL}"
 ```
+
+### Engagement profiles
+
+A profile chooses defaults and templates for the kind of engagement; it never
+relaxes a gate. The checker, the evidence grades and the sign-off rules are the
+same in every profile.
+
+| Profile | Use when | Intent source | Evidence ceiling | What the templates pre-fill |
+|---------|----------|---------------|------------------|------------------------------|
+| `design` | no code yet, or a design review before code | PRD/TRD/ADRs copied under `contracts/spec/` as target artifacts | numeric simulation of each actor's outcome | `model.md` gains an actor-outcome table (early and late entrant, first mover out, exiting LP, keeper, liquidator; normal, stressed, default cases); deployment rows read `N/A - design review` |
+| `pre-deploy` | source at a commit, nothing live | spec requirement IDs plus source | `CONFIRMED-LOGIC` (state mock or fork) | deployment rows read `N/A - pre-deployment`; findings use `Current deployment: not deployed` and `Deployment/state anchor: NOT APPLICABLE - pre-deployment at <revision>` |
+| `delta` | a re-audit of a diff range against a prior workspace | prior report's scope plus the diff and its transitive callers | as the prior profile | `scope.md` gains a Baseline table (prior workspace, prior report, baseline revision, diff range, transitive scope); `coverage.md` gains a "Reconciled Changes From the Prior Review Baseline" table and the `EXCLUDED - covered by <prior report>` convention for unchanged surfaces |
+| `deployed` | a live deployment is in scope (default) | docs plus live state | `CONFIRMED-DEPLOYED` | `target-lock.md` gains the Deployment Reconciliation table (one row per address: code hash, own verification bundle, repository match, getters read at a block, proxy implementation) |
+| `external` | the report will leave the team | as `deployed` or `pre-deploy` | as above | README notes `--strict-hashes` and the external report template; record digests from the start |
+
+A delta audit is not a diff-only review: every changed component's transitive
+callers, shared storage, invariants that read changed state and external
+assumptions are in scope, and unchanged surfaces are excluded only by naming
+the prior report that covered them. Spec requirement IDs (for `design`,
+`pre-deploy` and `delta` targets that carry a TRD or ADRs) are the intent
+source: a spec/code mismatch with a security effect is a finding, and an
+accepted risk recorded in the spec is not, unless the recorded acceptance is
+wrong about the mechanism or its bound.
 
 **Chain class determines which playbook + metrics files to load:**
 
@@ -373,6 +397,19 @@ Validate verification status:
 - Bytecode + metadata match
 - All linked libraries verified
 - Note any proxy patterns (UUPS / Transparent / Beacon) — fetch implementation contracts too
+
+**Reconcile each deployment before reading source** (`deployed`, `external`
+and `delta` profiles; the table is in `target-lock.md`, the procedure in
+`references/evm-tools.md` "Deployment reconciliation"). Deployed code differs
+from the repository more often than not: several live revisions behind one
+interface, a legacy mastercopy next to a patched one, deploy constants that no
+longer match the live signers. Per address: code hash at the pinned block;
+its own verification bundle, never a sibling's; repository match stated as
+byte-identical, differs (which files) or absent; roles, signers, thresholds,
+delays and caps read from live getters, not from committed constants; proxy,
+beacon and factory implementations resolved. Group addresses by code hash and
+audit one source per hash. "Deployed ≠ repository" is a scope statement to
+record, not a finding by itself.
 
 For source from a public repo at a specific commit:
 
@@ -646,7 +683,7 @@ Apply `references/triage.md` before anything enters `findings.md`:
 2. **Reachability:** demonstrate or rigorously derive the claimed entry, preconditions, transitions, and effect. Constructed state is valid only for the claim it actually supports.
 3. **Impact and falsification:** define a measurable success criterion and try to falsify the mechanism. Use a negative control when meaningful; otherwise document the proof obligation, counterexample search, or reason a control is inapplicable.
 4. **Provenance and integrity:** record producer context, evidence method, exact command or review procedure, artifact paths, target/state anchors, dependencies, and result. Every referenced artifact must be retained and openable in the workspace; its digest is optional internally. Use a native immutable anchor (for example positive block/slot, native transaction digest, object-ID@version set, content-addressed snapshot, or versioned revision). Repeatability is evidence-specific; there is no arbitrary rerun quota.
-5. **Deduplication:** search `triage/known-issues.md`, prior candidates/findings, upstream advisories, and known fixes using the candidate dedup key.
+5. **Deduplication and prior art:** search, with the candidate dedup key, this engagement's ledger and candidates, spec-recorded accepted risks, prior audits (scope sections only, including the docs site's `/audits` pages), the vendor's security advisories and engineering blog, `security.txt`, Immunefi, and a web search for post-mortems and advisories over the last 24 months; compare the audited lockfile and the deployed version with any patch found. The full recipe is `triage.md` gate 5; record which sources were checked in the candidate's `Known-issue search` field.
 6. **Cost versus impact:** quantify attacker capital, privilege, ordering, timing, fees, and repetitions against user/protocol/network impact, and state explicitly whether the claim reaches loss of funds or assets.
 7. **Independent validation:** a validator other than the producer inspects the primary artifacts and assumptions and independently challenges reachability, impact, target fidelity, and falsification. The validator may rerun or re-review the documented method, use a different sound method, or do both, and records the selected method and result in `triage/validation/C-NN.md`.
 

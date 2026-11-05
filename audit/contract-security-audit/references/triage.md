@@ -314,13 +314,41 @@ verification methods:
   artifact must exist and be readable in the workspace; content-addressing it is
   optional internally.
 
-### 5. Deduplication Gate
+### 5. Deduplication and Prior-Art Gate
 
-- Search `triage/known-issues.md`, recorded findings, upstream advisories, and
-  earlier candidates.
-- Two manifestations are duplicates when they share the same root cause,
-  violated invariant, and affected sink. Link variants rather than inflating the
-  finding count.
+Before a candidate is validated, search for the same root cause in every place
+it could already be known. A pattern seen in the code is not new just because
+the repository's own audit PDFs do not mention it; an exploited, patched and
+publicly documented defect was once passed over because only in-repo reports
+were searched.
+
+- **In this engagement:** `triage/known-issues.md`, recorded findings, earlier
+  candidates, and any accepted risk recorded in the spec (an accepted risk is a
+  finding only when the recorded acceptance is wrong about the mechanism or its
+  bound).
+- **Prior audits, scope only:** read each prior report's scope section (repo,
+  commit, in-scope contracts, findings counts, unresolved items); do not re-read
+  full reports. Look where they are published, not only in the repo: the docs
+  site under `/security`, `/audits`, `/resources/audits`, and the audit firm's
+  own index.
+- **Vendor channels:** GitHub Security Advisories for the organisation, the
+  engineering blog or `engineering.*` subdomain, `security.txt`, the Immunefi
+  program page, and a web search for `<protocol> post-mortem | exploit |
+  advisory` over the last 24 months.
+- **Version drift:** compare the audited revision's lockfile or dependency pins
+  with the release date of any patch found above; a repository can pin a
+  pre-patch package after the fix shipped. Compare the deployed mastercopy or
+  implementation version with the fixed version; two live copies can differ.
+- **Authentication paths:** any discarded return value or success flag on an
+  external call in an authentication path is a candidate until disproved;
+  "the attacker would need contrived return data" is a hypothesis to test,
+  since bubbled revert data from a nested call is attacker-controlled more
+  often than it looks.
+
+Record in the candidate's `Known-issue search` field which of these sources
+were checked and what they returned. Two manifestations are duplicates when
+they share the same root cause, violated invariant and affected sink; link
+variants rather than inflating the finding count.
 
 ### 6. Cost-Impact Gate
 

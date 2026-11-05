@@ -5,21 +5,106 @@
 # methodology + chain-specific metrics references.
 #
 # Usage:
-#   init-workspace.sh <protocol> <chain>
+#   init-workspace.sh <protocol> <chain> [profile]
 # Example:
 #   init-workspace.sh morpho-blue ethereum
+#   init-workspace.sh my-vault arbitrum pre-deploy
+#
+# Profiles choose defaults and templates for the kind of engagement; they never
+# relax a gate (SKILL.md "Engagement profiles"):
+#   design      no code yet; spec documents are the target artifacts
+#   pre-deploy  source at a commit, nothing live (CONFIRMED-LOGIC ceiling)
+#   delta       re-audit of a diff range against a prior workspace
+#   deployed    a live deployment is in scope (default)
+#   external    deployed/pre-deploy whose report leaves the team (--strict-hashes)
 #
 # Output: $WORKSPACE/ with subdirs and README pointing at the references.
 
 set -euo pipefail
 
-PROTOCOL="${1:?Usage: init-workspace.sh <protocol> <chain>}"
+PROTOCOL="${1:?Usage: init-workspace.sh <protocol> <chain> [design|pre-deploy|delta|deployed|external]}"
 CHAIN="${2:?Missing chain (ethereum|arbitrum|optimism|base|polygon|bsc|solana|sui|...)}"
+PROFILE="${3:-deployed}"
 
 if [[ ! "$PROTOCOL" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
     echo "ERROR: protocol must be lowercase kebab-case (letters, digits, hyphens): $PROTOCOL" >&2
     exit 2
 fi
+
+case "$PROFILE" in
+    design|pre-deploy|delta|deployed|external) ;;
+    *)  echo "ERROR: unknown profile '$PROFILE'; use design, pre-deploy, delta, deployed or external." >&2
+        exit 2 ;;
+esac
+
+# Profile-dependent template values. Identity rows are written identically to
+# scope.md and target-lock.md so the checker's byte-for-byte match holds.
+case "$PROFILE" in
+    design)
+        PROFILE_NOTE="design review: no code; PRD/TRD/ADRs copied under contracts/spec/ are the target artifacts; evidence is a numeric simulation of each actor's outcome"
+        DEPLOY_ID_VALUE="N/A - design review (no deployment in scope)"
+        DEPLOY_HASH_VALUE="N/A - design review (no deployment in scope)"
+        ;;
+    pre-deploy)
+        PROFILE_NOTE="pre-deployment: source at a pinned revision, nothing live; evidence ceiling is CONFIRMED-LOGIC (state whether mocks or a fork were used); findings use 'Current deployment: not deployed'"
+        DEPLOY_ID_VALUE="N/A - pre-deployment (no live deployment in scope)"
+        DEPLOY_HASH_VALUE="N/A - pre-deployment (no live deployment in scope)"
+        ;;
+    delta)
+        PROFILE_NOTE="delta re-audit: the diff range plus its transitive callers, shared storage, invariants reading changed state and external assumptions; unchanged surfaces are EXCLUDED only by naming the prior report that covered them"
+        DEPLOY_ID_VALUE="TBD <!-- as in the prior workspace, or N/A - pre-deployment -->"
+        DEPLOY_HASH_VALUE="TBD <!-- as in the prior workspace, or N/A - pre-deployment -->"
+        ;;
+    external)
+        PROFILE_NOTE="external delivery: record digests from the start and gate with triage-check.sh --report --strict-hashes; build the external report from templates/external-audit-report.md"
+        DEPLOY_ID_VALUE="TBD <!-- use N/A - pre-deployment only when no live deployment is in scope -->"
+        DEPLOY_HASH_VALUE="TBD <!-- use N/A - pre-deployment only when no live deployment is in scope -->"
+        ;;
+    *)
+        PROFILE_NOTE="deployed target: bind every deployed claim to an address, code hash and pinned block; fill the Deployment Reconciliation table before reading source"
+        DEPLOY_ID_VALUE="TBD <!-- use N/A - pre-deployment only when no live deployment is in scope -->"
+        DEPLOY_HASH_VALUE="TBD <!-- use N/A - pre-deployment only when no live deployment is in scope -->"
+        ;;
+esac
+
+# Profile-specific template blocks, built here (top-level quoted heredocs are
+# portable) and spliced into the artifacts below.
+BASELINE_BLOCK=""
+if [ "$PROFILE" = "delta" ]; then
+    BASELINE_BLOCK="$(cat <<'EOF'
+
+## Baseline
+
+| Field | Value |
+|-------|-------|
+| Prior workspace | TBD <!-- path of the workspace this re-audit builds on --> |
+| Prior report | TBD <!-- reports/<protocol>-<chain>-<date>.md in the prior workspace --> |
+| Baseline revision | TBD <!-- the revision the prior report audited --> |
+| Diff range | TBD <!-- baseline..target, or the list of changed files --> |
+| Transitive scope | TBD <!-- callers, shared storage, invariants and external assumptions the diff touches --> |
+EOF
+)"
+fi
+RECON_BLOCK=""
+case "$PROFILE" in
+    deployed|external|delta)
+        RECON_BLOCK="$(cat <<'EOF'
+
+## Deployment Reconciliation
+
+> One row per in-scope address, filled before source is read (SKILL.md Phase 1,
+> evm-tools.md "Deployment reconciliation"). Group addresses by code hash and
+> audit one source per hash. "Repository match" is byte-identical / differs
+> (name the files) / absent. Getters are read live at the pinned block; deploy
+> constants are stale until matched. A deployed claim inherits the limits of its row.
+
+| Address | Code hash | Verification bundle (own, never a sibling bundle) | Repository match | Live getters read (block) | Proxy / beacon / factory implementation | Notes |
+|---------|-----------|---------------------------------------------|------------------|---------------------------|------------------------------------------|-------|
+| TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+EOF
+)"
+        ;;
+esac
 
 CHAIN="$(printf '%s' "$CHAIN" | tr '[:upper:]' '[:lower:]')"
 
@@ -168,6 +253,7 @@ mkdir -p audits
 # Audit Workspace: $PROTOCOL ($CHAIN)
 
 Created: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Profile: $PROFILE — $PROFILE_NOTE
 
 ## References (read these first)
 - Methodology (chain-agnostic): $SKILL_DIR/references/methodology.md
@@ -216,11 +302,12 @@ EOF
 | Chain | $CHAIN |
 | Source repository / package | TBD |
 | Source revision | TBD |
-| Deployment / program / package IDs | TBD <!-- use N/A only when no live deployment is in scope --> |
-| Deployed bytecode / package hash | TBD <!-- use N/A only when no live deployment is in scope --> |
+| Deployment / program / package IDs | $DEPLOY_ID_VALUE |
+| Deployed bytecode / package hash | $DEPLOY_HASH_VALUE |
 | Production build/profile or target-identity procedure | TBD |
 | Compiler / toolchain | TBD |
 | Configuration / state anchor | TBD |
+$BASELINE_BLOCK
 
 ## In Scope
 
@@ -254,8 +341,8 @@ EOF
 | Chain | $CHAIN |
 | Source repository / package | TBD |
 | Source revision | TBD |
-| Deployment / program / package IDs | TBD <!-- use N/A only when no live deployment is in scope --> |
-| Deployed bytecode / package hash | TBD <!-- use N/A only when no live deployment is in scope --> |
+| Deployment / program / package IDs | $DEPLOY_ID_VALUE |
+| Deployed bytecode / package hash | $DEPLOY_HASH_VALUE |
 | Production build/profile or target-identity procedure | TBD |
 | Compiler / toolchain | TBD |
 | Configuration / state anchor | TBD |
@@ -274,6 +361,7 @@ EOF
 | Target ID | Workspace path | SHA-256 | Role / scope significance |
 |-----------|----------------|---------|---------------------------|
 | T-01 | TBD | N/A | TBD |
+$RECON_BLOCK
 EOF
 
 [ -f "$WORKSPACE/orientation.md" ] || cat > "$WORKSPACE/orientation.md" <<'EOF'
@@ -306,6 +394,27 @@ EOF
 | Entity | Compromise | Liveness | Lie | Slow | Mitigation / residual risk |
 |--------|------------|----------|-----|------|----------------------------|
 EOF
+if [ "$PROFILE" = "design" ] && ! grep -Fq '## Actor Outcomes' "$WORKSPACE/model.md"; then
+    cat >> "$WORKSPACE/model.md" <<'EOF'
+
+## Actor Outcomes (design review)
+
+> The evidence of a design review is a numeric simulation of each actor's
+> outcome under the intended flow, not a code PoC. One row per actor and case;
+> a row where an actor gains at another's expense without any defect in the
+> mechanics is a J-lens candidate. Keep the simulation (script or spreadsheet)
+> under evidence/ and cite it per row.
+
+| Actor | Case (normal / stressed / default) | Intended flow | Outcome (numeric) | Gains at whose expense | Evidence |
+|-------|------------------------------------|---------------|-------------------|------------------------|----------|
+| early entrant | normal | TBD | TBD | TBD | TBD |
+| late entrant | normal | TBD | TBD | TBD | TBD |
+| first mover out | stressed | TBD | TBD | TBD | TBD |
+| exiting LP | default | TBD | TBD | TBD | TBD |
+| keeper | normal | TBD | TBD | TBD | TBD |
+| liquidator | stressed | TBD | TBD | TBD | TBD |
+EOF
+fi
 
 [ -f "$WORKSPACE/triage/candidates.md" ] || cat > "$WORKSPACE/triage/candidates.md" <<'EOF'
 # Candidate Registry — Generated Index
@@ -343,7 +452,7 @@ EOF
 - Falsification / control: TBD
 - Verification manifest: triage/reproducers/C-NN.md
 - Dedup key: TBD <!-- root-cause|invariant|sink, three non-empty segments, e.g. missing-check|asset-conservation|withdrawal -->
-- Known-issue search: TBD <!-- which sources were searched: in-repo audits, advisories, vendor blog, prior candidates -->
+- Known-issue search: TBD <!-- which sources were searched and what they returned: this engagement's ledger and candidates; spec-recorded accepted risks; prior audits (scope sections, docs-site /audits); GitHub Security Advisories, vendor blog, security.txt, Immunefi; web search for post-mortem/exploit/advisory (24 months); lockfile vs patch date; deployed vs fixed version -->
 - Producer: TBD
 - Producer context / timestamp: TBD
 - Source and verification artifact hashes: N/A <!-- optional; required under --strict-hashes -->
@@ -445,6 +554,9 @@ EOF
 > (deeper headings are not parsed) with one-line `- Field: value` entries; the
 > candidate, dedup key, target artifact IDs and verdicts must match the linked
 > `triage/` records exactly. Run `triage-check.sh --lint` after adding one.
+> Pre-deployment and design profiles: `Current deployment: not deployed`,
+> `Deployment/state anchor: NOT APPLICABLE - pre-deployment at <revision>`,
+> `Evidence verdict: CONFIRMED-LOGIC` (say whether mocks or a fork were used).
 
 ## Format
 
@@ -524,7 +636,23 @@ EOF
 | ID | Question / blocker | Affected scope or funds | Required next step | Reported as limitation? |
 |----|--------------------|-------------------------|--------------------|-------------------------|
 EOF
+if [ "$PROFILE" = "delta" ] && ! grep -Fq '## Reconciled Changes From the Prior Review Baseline' "$WORKSPACE/coverage.md"; then
+    cat >> "$WORKSPACE/coverage.md" <<'EOF'
 
-echo "[ok] Workspace initialized at $WORKSPACE"
+## Reconciled Changes From the Prior Review Baseline
+
+> One row per changed surface in the diff range (scope.md Baseline), plus one
+> row for "unchanged code" with status EXCLUDED naming the prior report. A
+> changed surface is COVERED only when its transitive callers, shared storage,
+> invariants reading changed state and external assumptions were re-examined.
+
+| Surface | Change kind (parameter / new feature / logic) | Re-audit status | Evidence | Remaining limitation |
+|---------|-----------------------------------------------|-----------------|----------|----------------------|
+| TBD | TBD | OPEN | TBD | TBD |
+| Unchanged code | none | EXCLUDED - covered by <prior report> | prior workspace report | only re-entered transitively from the delta |
+EOF
+fi
+
+echo "[ok] Workspace initialized at $WORKSPACE (profile: $PROFILE)"
 echo "[ok] Chain: $CHAIN → playbook: $PLAYBOOK → metrics: $METRICS"
 echo "[next] Phase 1: fetch source into $WORKSPACE/contracts/"
