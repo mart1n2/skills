@@ -217,6 +217,19 @@ if [ "${TEST_SKILL_QUICK:-0}" = "1" ]; then
     exit 0
 fi
 
+# Role briefs: present, referenced from SKILL.md, and each names its inputs,
+# its write locations and its report-back section so a fresh agent can act on
+# the brief alone.
+for brief in hunter validator retester; do
+    test -s "$SKILL_DIR/templates/briefs/$brief.md"
+    grep -Fq '{{WORKSPACE}}' "$SKILL_DIR/templates/briefs/$brief.md"
+    grep -Eq '^## (Report back|Final message)' "$SKILL_DIR/templates/briefs/$brief.md"
+    grep -Fq 'Do not commit' "$SKILL_DIR/templates/briefs/$brief.md" || \
+        grep -Fq 'Never edit' "$SKILL_DIR/templates/briefs/$brief.md"
+done
+grep -Fq 'references/orchestration.md' "$SKILL_DIR/SKILL.md"
+test -s "$SKILL_DIR/references/orchestration.md"
+
 grep -Fq 'Use `templates/audit-report.md` by default.' "$SKILL_DIR/SKILL.md"
 grep -Fq 'Generate `templates/external-audit-report.md` only when the user explicitly asks' \
     "$SKILL_DIR/SKILL.md"

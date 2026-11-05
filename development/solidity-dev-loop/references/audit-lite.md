@@ -6,16 +6,20 @@ Independence means a fresh context that never sees the implementer's reasoning. 
 
 ## Roles
 
-| Role | Gets | Never gets | Produces |
-|---|---|---|---|
-| Auditor | spec and requirement IDs, invariants, dependency table, code at a commit, diff range | implementer's notes, PR description, chat, prior conclusions | candidates with PoC tests |
-| Validator | candidate files, PoC tests, code, spec | the auditor's reasoning beyond the candidate file | a verdict and severity per candidate |
-| Retester (after fixes) | fix diff, the findings it claims to close, full suite | the implementer's explanation | closed / not closed per finding, new candidates from the fix |
+The roles, what each may and may not see, parallel-hunter isolation, the
+report-back format, the output acceptance check and the two-model milestone
+option are defined once in `contract-security-audit/references/orchestration.md`,
+with the hand-off text in `contract-security-audit/templates/briefs/`
+(`hunter.md`, `validator.md`, `retester.md`). Use those briefs; the dev loop
+adds only these rules:
 
+- The auditor (the skill's "hunter") gets the spec with requirement IDs, the
+  invariants, the dependency table, the code at a commit and the diff range;
+  never the implementer's notes, the PR description, chat or prior conclusions.
 - Each role is a separate fresh subagent; in a runtime without subagents, a separate fresh session (for example a non-interactive `codex exec` or `claude -p` run) given only that role's inputs.
-- **Models:** PR audits use the implementer's model. Milestone audits run two auditors on different models and take the union, then each model validates the other's candidates. In one measured run on a real codebase with seven known issues, each auditor alone found three or four, the union five, and each found one issue the project only discovered later.
+- **Models:** PR audits use the implementer's model. Milestone audits run two auditors on different models and take the union, then each model validates the other's candidates (the measured result is in `orchestration.md`).
 - **Isolation:** auditors and validators work in their own git worktree at the audited commit, so PoCs never land in the implementer's tree until a fix ships them.
-- A validator reruns the PoC, tries to falsify it and challenges reachability and impact; reading and agreeing is not validation. It judges against the spec, not against code comments or the implementer's design notes. "The comment says it is intended" is not a rejection; when the spec is silent, the result is a spec-layer finding ("decide and write the intended behaviour"). Behaviour the spec explicitly accepts is `REJECTED` as a defect and noted as intended.
+- When the spec is silent on the behaviour a validator is judging, the result is a spec-layer finding ("decide and write the intended behaviour"), not a rejection.
 - Auditor/validator disagreements follow "When the loop stops" in SKILL.md.
 
 ## Modes and cadence
