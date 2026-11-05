@@ -208,6 +208,15 @@ for spec in "evm-demo ethereum" "solana-demo solana" "sui-demo sui"; do
     )
 done
 
+# TEST_SKILL_QUICK=1 stops here: frontmatter, compat, env loading, chain
+# resolution and workspace bootstrap are enough to prove the scripts run from
+# a given shell. CI uses it for the macOS zsh-invocation step so the full
+# suite (a hundred checker runs) is executed once per runner, not twice.
+if [ "${TEST_SKILL_QUICK:-0}" = "1" ]; then
+    printf 'Skill quick smoke tests passed.\n'
+    exit 0
+fi
+
 grep -Fq 'Use `templates/audit-report.md` by default.' "$SKILL_DIR/SKILL.md"
 grep -Fq 'Generate `templates/external-audit-report.md` only when the user explicitly asks' \
     "$SKILL_DIR/SKILL.md"

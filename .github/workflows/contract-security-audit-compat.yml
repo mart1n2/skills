@@ -26,4 +26,6 @@ jobs:
       - name: zsh invocation smoke (macOS)
         if: runner.os == 'macOS'
         shell: zsh {0}
+        env:
+          TEST_SKILL_QUICK: "1"
         run: bash audit/contract-security-audit/scripts/test-skill.sh

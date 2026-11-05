@@ -60,17 +60,37 @@ HINT_VERDICT="hint: start the value with PASS or CONFIRMED, then the evidence (a
 HINT_INDEPENDENT="hint: this field states a fact about who reviewed the claim; when no separate reviewer exists, keep the candidate REPRODUCED and this record pending rather than writing yes"
 HINT_HEADING="hint: each finding is a level-2 section '## F-NN' followed by one-line '- Field: value' entries"
 
+# Field lookups are pure bash (no awk/grep forks): the checker runs hundreds of
+# them per record and the suite runs the checker a hundred times, so each
+# forked process costs minutes on CI runners. get_field sets FIELD_VALUE (first
+# occurrence, leading whitespace stripped) and FIELD_COUNT; field_value is the
+# command-substitution wrapper kept for call sites that need a string.
+get_field() {
+    local gf_file="$1" gf_prefix="- $2:" gf_line
+    FIELD_VALUE=""
+    FIELD_COUNT=0
+    [ -f "$gf_file" ] || return 0
+    while IFS= read -r gf_line || [ -n "$gf_line" ]; do
+        case "$gf_line" in
+            "$gf_prefix"*)
+                if [ "$FIELD_COUNT" -eq 0 ]; then
+                    FIELD_VALUE="${gf_line#"$gf_prefix"}"
+                    FIELD_VALUE="${FIELD_VALUE#"${FIELD_VALUE%%[![:space:]]*}"}"
+                fi
+                FIELD_COUNT=$((FIELD_COUNT + 1))
+                ;;
+        esac
+    done < "$gf_file"
+}
+
 field_value() {
-    file="$1"
-    field="$2"
-    awk -v prefix="- $field:" '
-        index($0, prefix) == 1 {
-            value = substr($0, length(prefix) + 1)
-            sub(/^[ \t]*/, "", value)
-            print value
-            exit
-        }
-    ' "$file"
+    get_field "$1" "$2"
+    printf '%s\n' "$FIELD_VALUE"
+}
+
+field_count() {
+    get_field "$1" "$2"
+    printf '%s\n' "$FIELD_COUNT"
 }
 
 table_field_value() {
@@ -88,12 +108,13 @@ table_field_value() {
 
 # A placeholder is a template token like <value>; a comparison such as "x <= y"
 # or "amount < 1e18" is ordinary text and must not be rejected.
+PLACEHOLDER_RE='<[A-Za-z][^<>]*>'
 is_unset() {
     value="$1"
     case "$value" in
         ""|'?'|none|NONE|TBD|tbd|TBD\ *|tbd\ *|unknown|UNKNOWN|unknown\ *|UNKNOWN\ *|C-NN) return 0 ;;
     esac
-    printf '%s\n' "$value" | grep -Eq '<[A-Za-z][^<>]*>'
+    [[ "$value" =~ $PLACEHOLDER_RE ]]
 }
 
 is_non_substantive() {
@@ -107,13 +128,12 @@ is_non_substantive() {
 require_field() {
     file="$1"
     field="$2"
-    field_count="$(awk -v prefix="- $field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$file")"
-    if [ "$field_count" -ne 1 ]; then
-        fail "$file: field '$field' must appear exactly once (found $field_count); hint: exactly one line starting '- $field:'"
+    get_field "$file" "$field"
+    if [ "$FIELD_COUNT" -ne 1 ]; then
+        fail "$file: field '$field' must appear exactly once (found $FIELD_COUNT); hint: exactly one line starting '- $field:'"
         return
     fi
-    value="$(field_value "$file" "$field")"
-    if is_unset "$value"; then
+    if is_unset "$FIELD_VALUE"; then
         fail "$file: missing or placeholder field '$field'; $HINT_ONE_LINE"
     fi
 }
@@ -121,13 +141,12 @@ require_field() {
 require_substantive_field() {
     file="$1"
     field="$2"
-    field_count="$(awk -v prefix="- $field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$file")"
-    if [ "$field_count" -ne 1 ]; then
-        fail "$file: substantive field '$field' must appear exactly once (found $field_count); hint: exactly one line starting '- $field:'"
+    get_field "$file" "$field"
+    if [ "$FIELD_COUNT" -ne 1 ]; then
+        fail "$file: substantive field '$field' must appear exactly once (found $FIELD_COUNT); hint: exactly one line starting '- $field:'"
         return
     fi
-    value="$(field_value "$file" "$field")"
-    if is_unset "$value" || is_non_substantive "$value"; then
+    if is_unset "$FIELD_VALUE" || is_non_substantive "$FIELD_VALUE"; then
         fail "$file: missing, placeholder, or non-substantive field '$field'; $HINT_ONE_LINE; N/A and none are not accepted here"
     fi
 }
@@ -192,8 +211,9 @@ sha256_file() {
     fi
 }
 
+SHA256_RE='^[0-9a-fA-F]{64}$'
 is_sha256_value() {
-    printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' | grep -Eq '^[0-9a-f]{64}$'
+    [[ "$1" =~ $SHA256_RE ]]
 }
 
 # Integrity-only provenance fields are optional for internal review and required
@@ -202,7 +222,8 @@ is_sha256_value() {
 require_field_when_strict_hashes() {
     hash_file="$1"
     hash_field="$2"
-    hash_count="$(awk -v prefix="- $hash_field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$hash_file")"
+    get_field "$hash_file" "$hash_field"
+    hash_count="$FIELD_COUNT"
     if [ "$hash_count" -gt 1 ]; then
         fail "$hash_file: field '$hash_field' must appear at most once (found $hash_count)"
         return
@@ -235,33 +256,37 @@ check_lock_binding_value() {
 check_lock_binding() {
     lock_file="$1"
     lock_field="$2"
-    lock_count="$(awk -v prefix="- $lock_field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$lock_file")"
-    if [ "$lock_count" -gt 1 ]; then
-        fail "$lock_file: field '$lock_field' must appear at most once (found $lock_count)"
+    get_field "$lock_file" "$lock_field"
+    if [ "$FIELD_COUNT" -gt 1 ]; then
+        fail "$lock_file: field '$lock_field' must appear at most once (found $FIELD_COUNT)"
         return
     fi
-    check_lock_binding_value "$lock_file" "$(field_value "$lock_file" "$lock_field")"
+    check_lock_binding_value "$lock_file" "$FIELD_VALUE"
 }
 
+TARGET_ID_LIST_RE='^T-[0-9]+(,T-[0-9]+)*$'
 validate_target_id_value() {
     target_list_context="$1"
     target_list_value="$2"
-    if ! printf '%s\n' "$target_list_value" | grep -Eq '^T-[0-9]+(,T-[0-9]+)*$'; then
+    if ! [[ "$target_list_value" =~ $TARGET_ID_LIST_RE ]]; then
         fail "$target_list_context: target artifact IDs must be a canonical comma-separated T-NN list with no spaces"
         return
     fi
-    duplicate_target_id="$(printf '%s\n' "$target_list_value" | awk -F ',' '
-        { for (i = 1; i <= NF; i++) if (++seen[$i] == 2) { print $i; exit } }
-    ')"
-    if [ -n "$duplicate_target_id" ]; then
-        fail "$target_list_context: target artifact IDs repeat $duplicate_target_id"
-    fi
-    while IFS= read -r listed_target_id; do
-        [ -n "$listed_target_id" ] || continue
-        if ! grep -Fqx "$listed_target_id" "$TARGET_IDS"; then
-            fail "$target_list_context: target artifact IDs reference unknown $listed_target_id"
-        fi
-    done < <(printf '%s\n' "$target_list_value" | tr ',' '\n')
+    # Pure-bash duplicate and membership checks over the comma list.
+    # KNOWN_TARGET_IDS holds the manifest IDs as ",T-01,T-03,".
+    local tid_seen="," tid_rest="$target_list_value" tid
+    while [ -n "$tid_rest" ]; do
+        tid="${tid_rest%%,*}"
+        if [ "$tid_rest" = "$tid" ]; then tid_rest=""; else tid_rest="${tid_rest#*,}"; fi
+        case "$tid_seen" in
+            *",$tid,"*) fail "$target_list_context: target artifact IDs repeat $tid"; continue ;;
+        esac
+        tid_seen="$tid_seen$tid,"
+        case "${KNOWN_TARGET_IDS:-,}" in
+            *",$tid,"*) ;;
+            *) fail "$target_list_context: target artifact IDs reference unknown $tid" ;;
+        esac
+    done
 }
 
 validate_target_id_list() {
@@ -333,19 +358,21 @@ ledger_contains_key_and_canonical() {
 }
 
 workspace_path_has_symlink() {
-    relative_path="$1"
-    path_cursor="$WORKSPACE"
+    local relative_path="$1" path_cursor="$WORKSPACE" rest path_component
     if [ -L "$path_cursor" ]; then
         return 0
     fi
-    while IFS= read -r path_component; do
+    rest="$relative_path"
+    while [ -n "$rest" ]; do
+        path_component="${rest%%/*}"
+        if [ "$rest" = "$path_component" ]; then rest=""; else rest="${rest#*/}"; fi
         [ -n "$path_component" ] || continue
         [ "$path_component" = "." ] && continue
         path_cursor="$path_cursor/$path_component"
         if [ -L "$path_cursor" ]; then
             return 0
         fi
-    done < <(printf '%s\n' "$relative_path" | awk -F '/' '{ for (i = 1; i <= NF; i++) print $i }')
+    done
     return 1
 }
 
@@ -625,20 +652,23 @@ if [ "$MODE" = "final" ]; then
         fail "$WORKSPACE/target-lock.md: target artifact manifest validation failed"
     fi
 
-    TARGET_IDS="$TMP_CHECK/target-ids.txt"
-    TARGET_PATHS="$TMP_CHECK/target-paths.txt"
-    : > "$TARGET_IDS"
-    : > "$TARGET_PATHS"
+    # Membership sets kept in shell variables (",T-01,T-02," and a
+    # newline-delimited path list) so later lookups need no process.
+    KNOWN_TARGET_IDS=","
+    KNOWN_TARGET_PATHS="
+"
     actual_scope_files=0
     while IFS="$(printf '\t')" read -r target_id target_path target_hash target_role; do
         [ -n "$target_id" ] || continue
         actual_scope_files=$((actual_scope_files + 1))
-        if ! printf '%s\n' "$target_id" | grep -Eq '^T-[0-9]+$'; then
+        if ! [[ "$target_id" =~ ^T-[0-9]+$ ]]; then
             fail "$WORKSPACE/target-lock.md: target artifact ID must use exact T-NN grammar: $target_id"
-        elif grep -Fqx "$target_id" "$TARGET_IDS"; then
-            fail "$WORKSPACE/target-lock.md: duplicate target artifact ID: $target_id"
+        else
+            case "$KNOWN_TARGET_IDS" in
+                *",$target_id,"*) fail "$WORKSPACE/target-lock.md: duplicate target artifact ID: $target_id" ;;
+            esac
         fi
-        printf '%s\n' "$target_id" >> "$TARGET_IDS"
+        KNOWN_TARGET_IDS="$KNOWN_TARGET_IDS$target_id,"
 
         if is_unset "$target_path" || is_non_substantive "$target_path"; then
             fail "$WORKSPACE/target-lock.md: $target_id has a missing or non-substantive workspace path"
@@ -657,10 +687,13 @@ if [ "$MODE" = "final" ]; then
                 continue
                 ;;
         esac
-        if grep -Fqx "$target_path" "$TARGET_PATHS"; then
-            fail "$WORKSPACE/target-lock.md: duplicate target artifact path: $target_path"
-        fi
-        printf '%s\n' "$target_path" >> "$TARGET_PATHS"
+        case "$KNOWN_TARGET_PATHS" in
+            *"
+$target_path
+"*) fail "$WORKSPACE/target-lock.md: duplicate target artifact path: $target_path" ;;
+        esac
+        KNOWN_TARGET_PATHS="$KNOWN_TARGET_PATHS$target_path
+"
         if workspace_path_has_symlink "$target_path"; then
             fail "$WORKSPACE/$target_path: target artifact path must not traverse a symlink"
             continue
