@@ -53,6 +53,12 @@ Existing equivalent working notes are sufficient. Link canonical records rather
 than copying their status or evidence into a second registry. No database, graph
 service or Pi runtime is required. Discovery can run with one agent; report-stage
 independent validation requires a separate reviewer, which may be an extra agent.
+When the work is split across agents (parallel hunters by surface, a separate
+validator per candidate, a retester after fixes), use
+[references/orchestration.md](references/orchestration.md) and the briefs in
+`templates/briefs/`: they fix what each role may see, how parallel agents stay
+out of each other's build output, the report-back format, and the check an
+agent's output must pass before anything from it enters the workspace.
 
 Search backward from a violated property toward necessary conditions, and forward
 from real actors and observations toward consequences. Meeting at a shared state
@@ -203,6 +209,10 @@ a fix, exposure state, client decision, or retest result during migration.
   verification before citation.**
 - `config/chains.json` — chain RPC + explorer config (incl. Solana/Sui; Aptos is metadata-only)
 - `config/compiler-cves.json` — compiler version advisory database (EVM)
+- `references/orchestration.md` — roles and their inputs, parallel hunters by
+  surface, report-back format, output acceptance check, validation hand-off,
+  two-model milestone audits, retest rounds. Read when more than one agent
+  works the audit; the hand-off text is in `templates/briefs/`.
 - `references/evm-tools.md` — read when selecting Etherscan API/CLI acquisition,
   Halmos symbolic properties, or Echidna campaigns; includes result limits and
   retained-evidence guidance. These tools are optional, not audit prerequisites.
@@ -226,6 +236,7 @@ a fix, exposure state, client decision, or retest result during migration.
 
 - `templates/audit-report.md` — default internal reference report with candidate provenance, evidence, triage closure, coverage, findings, and limitations
 - `templates/search.md` — compact active-goal and frontier scaffold; links existing authoritative artifacts without duplicating them
+- `templates/briefs/{hunter,validator,retester}.md` — hand-off text for agents that hunt one surface, validate one candidate, or retest a fix round; fill the `{{PLACEHOLDERS}}` and give the agent only the brief and the inputs it names (see `references/orchestration.md`)
 - `templates/external-audit-report.md` — optional professional client/public report, generated only on explicit request; includes exact scope/baseline, disclosure controls, remediation status, limitations, and release gate
 - `templates/simulation/` — **EVM** Foundry fork PoCs: `BaseTest.sol` (fork setup, labels, deal helpers), `FlashLoanAttack.t.sol`, `OracleManipulation.t.sol`, `ReentrancyAttack.t.sol`, `ShareInflation.t.sol`, `GovernanceAttack.t.sol`
 - `templates/solana/` — **Solana** PoCs: `litesvm_harness.rs` (base), `exploit_signer_and_substitution.rs`, `fork_replay.sh` (fail-closed live-clone scaffold; adapt to a coherent snapshot)
@@ -929,6 +940,7 @@ contract-security-audit/
 │   └── compiler-cves.json                # Compiler advisory database
 ├── references/
 │   ├── goal-directed-search.md            # Blackboard + goal/frontier search and semantic meeting
+│   ├── orchestration.md                  # Roles, parallel hunters, report-back format, validation hand-off
 │   ├── methodology.md                    # Chain-agnostic spine (O/P, A–J lenses, severity) + EVM ladder & PoC library
 │   ├── triage.md                         # Candidate contract, false-positive gates, independent validation, report sign-off
 │   ├── playbook-solana.md                # Solana semantics + optional prompts/verification examples
@@ -938,6 +950,10 @@ contract-security-audit/
 │   └── metrics-sui.md                    # Sui/Move catalog — SlowMist-derived (gates, vuln→fix, incidents)
 ├── templates/
 │   ├── search.md                          # Lightweight goal/frontier working record
+│   ├── briefs/                           # Hand-off text for hunter, validator, retester agents
+│   │   ├── hunter.md
+│   │   ├── validator.md
+│   │   └── retester.md
 │   ├── audit-report.md                   # Default internal reference report
 │   ├── external-audit-report.md          # Optional explicit-request professional report
 │   ├── simulation/                       # EVM Foundry fork PoCs
