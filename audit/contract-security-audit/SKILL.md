@@ -834,7 +834,7 @@ finding's cost-versus-impact field:
 
 - Asset loss reached → choose Critical or High by magnitude, reversibility, and prerequisites.
 - No asset-loss path → cap at Medium, however novel the mechanism. Authorization or integrity violations with no value at stake, temporary liveness loss, and griefing without extraction belong here.
-- Privileged-role or governance abuse counts as asset loss only when the abused authority actually reaches funds (upgrade → drain, mint, parameter → extraction). Trace that path; do not assume it.
+- Privileged-role or governance abuse counts as asset loss only when the abused authority actually reaches funds (upgrade → drain, mint, parameter → extraction). Trace that path; do not assume it. When it does reach funds, the finding is High (unbounded but operationally remediable by multisig plus timelock), not Critical: Critical is reserved for permissionless paths. A timelock that meets the engagement's minimum delay with a real exit window resolves the control finding; a contract deployed nowhere is Informational with its would-be severity stated (`methodology.md § I`).
 
 Assign Critical / High / Medium / Low / Informational using the engagement's or
 bug-bounty program's taxonomy. When none is supplied, use the tiers in

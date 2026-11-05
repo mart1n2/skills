@@ -176,6 +176,29 @@ may be produced by any discovery method.
 
 ---
 
+### 2.7 Policy Engines and Permission Encoders
+
+- **Encoder/decoder type drift.** Permissions, orders or routes produced by an
+  off-chain SDK or kit and consumed by an on-chain decoder can disagree on a
+  type (a fixed-size array encoded as dynamic, an undefined argument that
+  becomes a wildcard, a falsy scoping that drops a constraint). Stored
+  permissions then pass checks the author never granted. Verify by replaying
+  the encoder's real output through the on-chain decoder on a fork; stored
+  configurations may need re-applying after the encoder is fixed.
+- **Array and bitmask conditions evaluated on element 0 only.** A condition
+  node that loops over `children.length` instead of the subject's length, or a
+  bitmask that ignores dynamic length, checks the first element and nothing
+  else.
+- **Callback data outside the policy.** A bundler or multicall whose committed
+  callback payload is executed through a re-entry path the permission checker
+  never sees: the policy constrains the outer call and the inner one runs
+  unconstrained. Real presets that pin the callback data to empty are the tell
+  that the gap is known.
+- **Silent fixes between live copies.** Two deployed mastercopies of the same
+  module can differ by an undisclosed patch; compare code hashes and diff the
+  verified sources rather than assuming one version (see evm-tools.md,
+  "Deployment reconciliation").
+
 ## 3. Initialization & Upgrade Safety
 
 ### 3.1 Implementation Lockdown
@@ -293,6 +316,22 @@ may be produced by any discovery method.
 
 ---
 
+### 5.6 Relayed Authorizations and Router Allowances
+
+- **Permissionless submission decouples payment from accounting.** An EIP-3009
+  `transferWithAuthorization` (or any permit-style authorization) that anyone
+  may submit can be front-run: the raw transfer lands, the outer purchase or
+  mint reverts, the nonce is burned, and the funds are stranded with no admin
+  sweep. Bind the authorization to the protocol (`receiveWithAuthorization`,
+  `msg.sender == to`) or make the outer call the only consumer; a standalone
+  entry that reuses a composite flow's signature breaks the composite's
+  atomicity the same way.
+- **Router allowance not reset after a partial fill.** A `safeApprove` or
+  `approve` to a router followed by `exactInput*` that fills partially leaves a
+  non-zero allowance; the next non-zero approval reverts and that token's path
+  is denied until an admin resets it. Use `forceApprove` or reset to zero after
+  each call.
+
 ## 6. Oracle & Price Manipulation
 
 ### 6.1 Source Candidate Signals
@@ -356,6 +395,23 @@ There is no universal safe window or TVL threshold. For the pinned pool and targ
   neither aggregation nor an arbitrary percentage proves safety.
 
 ---
+
+### 6.7 Oracleless, Self-Priced Collateral
+
+- **Pump → borrow → dump with pool conservation.** Lending that prices
+  collateral from an AMM's own spot: the attacker pumps, borrows against the
+  inflated collateral, never repays, and dumps the rest to recover the pump
+  capital and crash the price into bad debt. Per-band or per-transaction borrow
+  caps only rate-limit the cycle; they do not stop it. Write the conservation
+  check (`honest_drained = startReserves - poolEnd`;
+  `attacker_PnL + fees ≈ honest_drained`). The fix family is a
+  manipulation-resistant price (TWAP or lagged minimum), not larger haircuts; a
+  same-block guard is friction, not a fix, for a thin single-venue token.
+- **Collateral ratio as the real defence.** Where a TWAP window is nominal
+  (seconds) the protection comes from the collateral ratio and the cost of
+  holding a pumped price across blocks; quantify that cost against the
+  borrowable principal per pool, since permissionless pool creation makes the
+  risk non-uniform.
 
 ## 7. Arithmetic & Precision
 
@@ -462,6 +518,25 @@ For each user-callable value-moving function, write down preconditions and postc
 
 ---
 
+### 9.5 Authentication Paths: Discarded Success Flags
+
+- **Ignored `staticcall`/`call` success in a signature check.** An ERC-1271 or
+  custom verifier that reads the return data without checking the success flag
+  accepts bubbled revert data as a valid magic value when a nested call reverts
+  with attacker-shaped data. Any discarded success flag on an external call in
+  an authentication path is a candidate until disproved; "the attacker would
+  need contrived return data" is a hypothesis to test, not a dismissal.
+
+### 9.6 Proof-Gated Pools
+
+- **On-chain balance check that is a tautology.** A shielded or proof-gated
+  pool whose only on-chain conservation check reduces to
+  `balanceDelta == claimedDelta` for a pure withdrawal delegates all value
+  conservation to the off-chain circuit; a circuit or verifying-key defect is
+  then unbounded, instant loss with no on-chain backstop. Look for an
+  independent per-asset shielded-supply bound on withdrawals and a timelock on
+  verifier changes; nulling the helper is a kill switch, not a fix.
+
 ## 10. Flash Loan & MEV Resistance
 
 ### 10.1 Flash-Loan-Resistant Design
@@ -512,6 +587,12 @@ For each user-callable value-moving function, write down preconditions and postc
   *DefiLlama:* Curve DEX $61.7M.
 
 ---
+
+- Build tools that collapse two majors of one dependency into a single source
+  name compile a package against the other package's copy. When two versions of
+  a library coexist in a workspace, check `build-info` inputs for which file
+  was actually compiled; a module that pins a pre-patch dependency in its
+  lockfile after the patch shipped is a candidate (triage.md gate 5).
 
 ## 12. Architecture-Level Candidate Signals
 
@@ -577,6 +658,51 @@ For each user-callable value-moving function, write down preconditions and postc
   *DefiLlama:* Balancer V2 $128M (Composable Stable Pools Exploit, 2025-11).
 
 ---
+
+### 13.6 Adapters, Meta-Vaults and Keeper-Driven Positions
+
+- **Permissionless deallocate as an entry into every adapter.** A meta-vault
+  that lets anyone force-deallocate a zero amount from an adapter turns each
+  adapter's deallocate/reconcile path into a permissionless entry point.
+  Inventory it as such for every adapter before reading the adapter.
+- **Balance-delta reconciliation flipped by a donation.** An adapter that infers
+  "executed" versus "cancelled" from a balance delta can be flipped by a 1-wei
+  transfer, stranding proceeds. Reconcile against the venue's own order state,
+  not a balance comparison.
+- **Lossy round-trip open in both directions to the lowest-trust key.** A
+  per-call slippage bound with no cumulative bound lets a keeper cycle
+  lever/delever and bleed the position to its own counterparty. Fix family:
+  withhold one direction, re-check equity after the round trip, bound loss
+  per period.
+- **Fallback valuation in the wrong units.** A fallback that commits a debt or
+  position *total* at the last price, rather than live *units* at the last
+  price, double-counts repayments made during an outage and ignores accrual.
+  A migration target that starts with a zero price values the migrated units
+  at zero until its first successful read.
+- **Limits present in code, inert in configuration.** Verify every cap's live
+  value, not its presence; zero or `max` at deployment leaves a key compromise
+  unbounded while the source reads as bounded.
+- **Withdrawal delay stamped on the sender, not the receiver.** A transfer hook
+  that records the delay on `from` lets shares moved to a fresh address skip
+  the delay entirely (JIT interest or reward skimming).
+- **Nested-vault NAV reads the sub-vault's idealized conversion.** Covered in
+  § 6.5 and methodology X.3 item 8 / J item 10: a vault-of-vaults that values
+  `underlying.convertToAssets(balanceOf(self))` is donation-inflatable and
+  illiquidity-blind.
+
+### 13.7 Commit-Reveal and Dual-Path Issuance
+
+- **Free reroll when the reveal window lapses before the commit or fee.** A
+  reveal that may be rescheduled after the blockhash window expires, without
+  burning the fee or consuming the seed commitment, allows best-of-N grinding
+  of the outcome.
+- **One purchase, two mint paths.** Settlement that credits the buyer once via
+  the pool's settlement branch and again via the protocol's own record call
+  double-issues per purchase. Group the protocol's own events per transaction;
+  two issuance events in one transaction is a direct deployed-state signal.
+- **Ungated `beforeAddLiquidity` on a hook with a locked, very wide range.**
+  Searchers add just-in-time liquidity around targeted swaps and capture the
+  fee the locked position was meant to earn.
 
 ## 14. Optional Reachability Atlas Recipe (Methodology P)
 
@@ -662,6 +788,14 @@ If the Atlas is used, reconcile its material leads and limitations in `coverage.
   *DefiLlama:* "Third-party Dev Backdoor Exploit"; "Whitelisted Address Impersonation"; "False Peer Exploit".
 
 ---
+
+- **Third-party admin actions as a liveness class.** A token freeze or
+  blacklist, a dependency's pause, a router being removed, or a vault's
+  settlement guard can leave a position that can be neither settled nor
+  written off, which contradicts an "accepted DoS with recovery" stance. Fork
+  tests that exercise each third-party admin action against each recovery path
+  are the verification shape; a guard that blocks both the happy path and the
+  impairment path is the finding.
 
 ## Restoring Reproducible Historical Metrics
 
