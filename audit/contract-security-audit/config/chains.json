@@ -198,6 +198,30 @@
     "aliases": ["hyperliquid", "hyper"],
     "is_l2": false
   },
+  "robinhood": {
+    "chain_id": 4663,
+    "rpc_url_env": "ROBINHOOD_RPC_URL",
+    "rpc_url_default": "https://rpc.mainnet.chain.robinhood.com",
+    "explorer_api": "https://api.etherscan.io/v2/api",
+    "explorer_key_env": "ETHERSCAN_API_KEY",
+    "explorer_url": "https://robin.etherscan.io",
+    "explorer_type": "etherscan",
+    "aliases": ["robin", "robinhood-chain"],
+    "is_l2": true,
+    "note": "Arbitrum Orbit L2. The public RPC is not archive-capable: a pinned block expires within minutes, so read at latest and record the observation block, or use an archive provider."
+  },
+  "mezo": {
+    "chain_id": 31612,
+    "rpc_url_env": "MEZO_RPC_URL",
+    "rpc_url_default": "https://mezo-mainnet.boar.network",
+    "explorer_api": "https://explorer.mezo.org/api",
+    "explorer_key_env": "MEZO_EXPLORER_API_KEY",
+    "explorer_url": "https://explorer.mezo.org",
+    "explorer_type": "blockscout",
+    "aliases": ["mezo-mainnet"],
+    "is_l2": true,
+    "note": "Bitcoin L2; native gas token is BTC. Many system contracts are unverified on Blockscout, so fetch source from the project repository at the deploy commit and bind it by bytecode. BTC/USD oracle is a system precompile at 0x7b7c000000000000000000000000000000000015 (18 decimals)."
+  },
   "_non_evm_note": "Solana (SVM) and Sui (Move) are not EVM and have no Etherscan-style verified-source API. The fields below differ from EVM entries: no chain_id/explorer_api/explorer_key_env. Source acquisition and PoC tooling are chain-specific — see the referenced playbook file. Phase 0 maps chain_class → metrics_file + playbook_file.",
   "solana": {
     "chain_class": "svm",

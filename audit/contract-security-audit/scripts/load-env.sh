@@ -2,6 +2,10 @@
 # Shared .env loader for all audit scripts.
 # Source this file: source "$(dirname "$0")/load-env.sh"
 #
+# Portable: uses only POSIX parameter expansion so it can be sourced from
+# bash 3.2+ and from an interactive zsh (for ad hoc cast/curl calls). No
+# BASH_REMATCH, no ${!indirect}, no arrays.
+#
 # Loading priority (first-found wins per variable):
 #   1. Already-exported shell environment variables
 #   2. $WORKSPACE/.env                                     (per-audit overrides)
@@ -10,29 +14,48 @@
 #   5. ~/.env                                              (user fallback)
 
 _load_env_file() {
-    local envfile="$1"
+    envfile="$1"
     [ -f "$envfile" ] || return 0
     while IFS= read -r line || [ -n "$line" ]; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
-        if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
-            local key="${BASH_REMATCH[1]}"
-            local val="${BASH_REMATCH[2]}"
-            val="${val#\"}" ; val="${val%\"}"
-            val="${val#\'}" ; val="${val%\'}"
-            if [ -z "${!key+x}" ]; then
-                export "$key=$val"
-            fi
+        case "$line" in
+            ''|\#*) continue ;;
+        esac
+        # Strip leading whitespace, then skip comments and lines without '='.
+        line="${line#"${line%%[![:space:]]*}"}"
+        case "$line" in
+            ''|\#*) continue ;;
+            *=*) ;;
+            *) continue ;;
+        esac
+        key="${line%%=*}"
+        val="${line#*=}"
+        # Only accept a valid identifier; this also keeps the eval below safe.
+        case "$key" in
+            ''|*[!A-Za-z0-9_]*|[0-9]*) continue ;;
+        esac
+        val="${val#\"}" ; val="${val%\"}"
+        val="${val#\'}" ; val="${val%\'}"
+        # Set only when the variable is currently unset (shell env wins).
+        if [ -z "$(eval "printf '%s' \"\${$key+x}\"")" ]; then
+            export "$key=$val"
         fi
     done < "$envfile"
 }
 
+# Resolve the path of this file under bash or zsh.
+_load_env_self=""
+if [ -n "${BASH_SOURCE:-}" ]; then
+    _load_env_self="${BASH_SOURCE[0]}"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+    _load_env_self="$(eval 'printf "%s" "${(%):-%x}"')"
+fi
+[ -n "$_load_env_self" ] || _load_env_self="$0"
+
 # Auto-detect SKILL_DIR if not already set
 if [ -z "${SKILL_DIR:-}" ]; then
-    if [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config/chains.json" ]; then
-        SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    elif [ -f "$(cd "$(dirname "$0")/.." && pwd)/config/chains.json" ]; then
-        SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+    _load_env_candidate="$(cd "$(dirname "$_load_env_self")/.." 2>/dev/null && pwd)"
+    if [ -n "$_load_env_candidate" ] && [ -f "$_load_env_candidate/config/chains.json" ]; then
+        SKILL_DIR="$_load_env_candidate"
     fi
 fi
 
@@ -47,3 +70,4 @@ fi
     _load_env_file "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.env"
 [ -n "${OPENCLAW_HOME:-}" ] && _load_env_file "$OPENCLAW_HOME/.env"
 _load_env_file "$HOME/.env"
+unset _load_env_self _load_env_candidate

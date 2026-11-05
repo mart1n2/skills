@@ -370,6 +370,16 @@ is valid; neither executable reruns nor a different provider are universal
 requirements. If no separate reviewer is available, preserve `REPRODUCED` and
 record the pending validation rather than self-promoting the candidate.
 
+**Solo runs.** A single agent cannot truthfully complete a validation record for
+its own candidate: `Independent from producer` states a fact about who reviewed
+the claim, not a formatting convention. When no second reviewer exists, leave
+the field honest, keep the candidate `REPRODUCED`, list it under `coverage.md`
+→ `Candidate Limitations` as "independent validation pending", and let the
+final checker report that as the residual error. A checker failure on a real
+process gap is the correct outcome. The cheapest way to close the gap is a
+fresh subagent given only the candidate file, target lock, manifest and primary
+artifacts (not the producer's conversation), as described above.
+
 An additional agent is an eligible separate reviewer; a different model/provider
 is optional, and agent agreement is not proof. Give it the bounded claim, exact
 target and primary artifacts, known counterevidence, and output location, without
@@ -469,9 +479,23 @@ missing/out-of-workspace/hash-mismatched evidence, incomplete recorded findings,
 cross-section evidence links, and obvious
 candidate/evidence/validator/human-decision contradictions.
 `--report` adds the human sign-off requirement; `--strict-hashes` adds the
-integrity-digest requirements. `--bootstrap` is only for checking the structure of
-a newly initialized empty workspace. Script success is a mechanical precondition,
-not a substitute for independent review or human judgment.
+integrity-digest requirements. `--lint` (alias `--bootstrap`) runs the
+record-format and cross-file consistency checks without the closure checks, so
+it can be run on an open workspace right after a candidate, manifest, validation
+or finding is written; the final mode is for the end of the audit. Script
+success is a mechanical precondition, not a substitute for independent review or
+human judgment.
+
+Record-format rules the checker enforces, so they do not have to be rediscovered
+at the gate: every field is one line (`- Field: value`); a bare header with an
+indented list below parses as empty; `TBD`, `N/A`, `none` and `<placeholder>`
+tokens are unfilled, while comparisons such as `<=` are ordinary text; finding
+headings are level-2 `## F-NN`; verdict fields start with their keyword (`PASS`,
+`CONFIRMED`, `NOVEL`, `INDEPENDENTLY-VALIDATED`) followed by a space or
+punctuation; the candidate's target revision, deployment and build fields are
+copied byte for byte from `target-lock.md`; artifact path fields hold exactly
+one workspace-relative path with no annotation; `coverage.md` keeps its section
+headings verbatim and its cells numeric or substantive.
 
 Claims about a live deployment additionally require evidence bound to the
 deployed target and relevant state as defined in `SKILL.md` Phase 8. Replay is

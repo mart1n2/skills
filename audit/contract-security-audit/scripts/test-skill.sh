@@ -208,6 +208,15 @@ for spec in "evm-demo ethereum" "solana-demo solana" "sui-demo sui"; do
     )
 done
 
+# TEST_SKILL_QUICK=1 stops here: frontmatter, compat, env loading, chain
+# resolution and workspace bootstrap are enough to prove the scripts run from
+# a given shell. CI uses it for the macOS zsh-invocation step so the full
+# suite (a hundred checker runs) is executed once per runner, not twice.
+if [ "${TEST_SKILL_QUICK:-0}" = "1" ]; then
+    printf 'Skill quick smoke tests passed.\n'
+    exit 0
+fi
+
 grep -Fq 'Use `templates/audit-report.md` by default.' "$SKILL_DIR/SKILL.md"
 grep -Fq 'Generate `templates/external-audit-report.md` only when the user explicitly asks' \
     "$SKILL_DIR/SKILL.md"
@@ -1847,6 +1856,94 @@ expect_gate_failure 'Duplicate findings-closure rows unexpectedly passed.' \
     'exactly one findings row'
 mv "$DEMO_WS/coverage.md.legacy-row" "$DEMO_WS/coverage.md"
 bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+
+# ---------------------------------------------------------------------------
+# Record-format usability: the checker accepts ordinary text that only looks
+# like a placeholder, accepts punctuation after a verdict keyword, names the
+# heading-level mistake, and offers --lint as an early, closure-free mode.
+# ---------------------------------------------------------------------------
+bash "$SKILL_DIR/scripts/triage-check.sh" --lint "$DEMO_WS" >/dev/null
+
+# A comparison operator is not a template placeholder.
+cp "$DEMO_WS/triage/candidates/C-02.md" "$DEMO_WS/triage/candidates/C-02.md.compare"
+sed 's/^- Cost versus impact: .*/- Cost versus impact: attacker spends at most 1 <= 2 wei of gas; vault loses >= 1000 USDC; reaches loss of funds: yes/' \
+    "$DEMO_WS/triage/candidates/C-02.md.compare" > "$DEMO_WS/triage/candidates/C-02.md"
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+# A real template token is still rejected, with the one-line hint.
+sed 's/^- Cost versus impact: .*/- Cost versus impact: <fill in>/' \
+    "$DEMO_WS/triage/candidates/C-02.md.compare" > "$DEMO_WS/triage/candidates/C-02.md"
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+expect_gate_failure 'Angle-bracket placeholder unexpectedly passed.' \
+    'a bare header with an indented list below parses as empty'
+mv "$DEMO_WS/triage/candidates/C-02.md.compare" "$DEMO_WS/triage/candidates/C-02.md"
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+
+# "CONFIRMED, <evidence>" is a valid verdict; "CONFIRMEDLY" is not.
+cp "$DEMO_WS/triage/validation/C-02.md" "$DEMO_WS/triage/validation/C-02.md.verdict"
+sed 's/^- Actor\/reachability verdict: .*/- Actor\/reachability verdict: CONFIRMED, reachable from permissionless deposit/' \
+    "$DEMO_WS/triage/validation/C-02.md.verdict" > "$DEMO_WS/triage/validation/C-02.md"
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+sed 's/^- Actor\/reachability verdict: .*/- Actor\/reachability verdict: CONFIRMEDLY reachable/' \
+    "$DEMO_WS/triage/validation/C-02.md.verdict" > "$DEMO_WS/triage/validation/C-02.md"
+expect_gate_failure 'Verdict run into a word unexpectedly passed.' \
+    'start the value with PASS or CONFIRMED'
+mv "$DEMO_WS/triage/validation/C-02.md.verdict" "$DEMO_WS/triage/validation/C-02.md"
+
+# A solo run that writes "no" gets the honest-field hint, not a bare rejection.
+cp "$DEMO_WS/triage/validation/C-02.md" "$DEMO_WS/triage/validation/C-02.md.solo"
+sed 's/^- Independent from producer: .*/- Independent from producer: no, same agent/' \
+    "$DEMO_WS/triage/validation/C-02.md.solo" > "$DEMO_WS/triage/validation/C-02.md"
+expect_gate_failure 'Non-independent validation unexpectedly passed.' \
+    'keep the candidate REPRODUCED and this record pending'
+mv "$DEMO_WS/triage/validation/C-02.md.solo" "$DEMO_WS/triage/validation/C-02.md"
+
+# Level-3 finding headings are named explicitly.
+cp "$DEMO_WS/findings.md" "$DEMO_WS/findings.md.heading"
+sed 's/^## F-01 /### F-01 /' "$DEMO_WS/findings.md.heading" > "$DEMO_WS/findings.md"
+expect_gate_failure 'Level-3 finding heading unexpectedly passed.' \
+    "finding headings must be level-2 '## F-NN'"
+mv "$DEMO_WS/findings.md.heading" "$DEMO_WS/findings.md"
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+
+# Identity mismatches print both values.
+cp "$DEMO_WS/scope.md" "$DEMO_WS/scope.md.identity"
+sed 's/^| Compiler \/ toolchain | \(.*\) |$/| Compiler \/ toolchain | \1 (edited) |/' \
+    "$DEMO_WS/scope.md.identity" > "$DEMO_WS/scope.md"
+expect_gate_failure 'Identity mismatch unexpectedly passed.' \
+    '(edited)'
+mv "$DEMO_WS/scope.md.identity" "$DEMO_WS/scope.md"
+bash "$SKILL_DIR/scripts/triage-check.sh" "$DEMO_WS" >/dev/null
+
+# ---------------------------------------------------------------------------
+# load-env.sh must be sourceable from zsh (ad hoc cast/curl calls) as well as
+# from bash; both must honour the shell-env-wins rule.
+# ---------------------------------------------------------------------------
+if command -v zsh >/dev/null 2>&1; then
+    printf 'AUDIT_ZSH_ENV_TEST=workspace\n' > "$TMP_ROOT/env-workspace/.env"
+    zsh_value="$(env -u AUDIT_ZSH_ENV_TEST WORKSPACE="$TMP_ROOT/env-workspace" SKILL_DIR="$SKILL_DIR" \
+        zsh -c 'source "$SKILL_DIR/scripts/load-env.sh"; printf "%s" "$AUDIT_ZSH_ENV_TEST"')"
+    test "$zsh_value" = "workspace"
+    zsh_value="$(AUDIT_ZSH_ENV_TEST=shell WORKSPACE="$TMP_ROOT/env-workspace" SKILL_DIR="$SKILL_DIR" \
+        zsh -c 'source "$SKILL_DIR/scripts/load-env.sh"; printf "%s" "$AUDIT_ZSH_ENV_TEST"')"
+    test "$zsh_value" = "shell"
+    zsh_value="$(env -u SKILL_DIR WORKSPACE="$TMP_ROOT/env-workspace" \
+        zsh -c "source '$SKILL_DIR/scripts/load-env.sh'; printf '%s' \"\$SKILL_DIR\"")"
+    test "$zsh_value" = "$SKILL_DIR"
+fi
+
+# ---------------------------------------------------------------------------
+# Chain support comes from chains.json, not a hardcoded list: a new EVM entry
+# (blockscout or etherscan) is usable by init-workspace without script edits.
+# ---------------------------------------------------------------------------
+(
+    cd "$TMP_ROOT"
+    bash "$SKILL_DIR/scripts/init-workspace.sh" mezo-demo mezo >/dev/null
+    grep -Fq 'metrics-evm.md' audit-workspace/mezo-demo/README.md
+    bash "$SKILL_DIR/scripts/init-workspace.sh" robin-demo robin >/dev/null
+    grep -Fq '(robinhood)' audit-workspace/robin-demo/README.md
+)
 
 if (cd "$TMP_ROOT" && bash "$SKILL_DIR/scripts/init-workspace.sh" aptos-demo aptos >/dev/null 2>&1); then
     printf 'Aptos fail-closed check unexpectedly succeeded.\n' >&2

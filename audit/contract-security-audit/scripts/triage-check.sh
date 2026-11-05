@@ -10,26 +10,36 @@
 #   --strict-hashes  additionally require every integrity digest (target lock,
 #                    target artifacts, evidence, remediation/retest). Use for
 #                    client/public delivery, moving baselines, shared workspaces.
-#   --bootstrap      structure-only check of a newly initialized workspace.
+#   --lint           record-format check while the audit is still open: field
+#                    grammar, status vocabulary, cross-file consistency of each
+#                    candidate/manifest/validation/finding. Skips the closure
+#                    checks that only make sense at the end (terminal
+#                    dispositions, identity reconciliation, coverage counts).
+#                    Run it as soon as a record is written, before the final
+#                    gate. --bootstrap is the same mode on an empty workspace.
+#
+# Every error names the file and field, and most carry a "hint:" with the
+# accepted form, so a record can be fixed without reading this script.
 
 set -euo pipefail
 
 MODE="final"
 REQUIRE_SIGNOFF=0
 STRICT_HASHES=0
+USAGE='Usage: triage-check.sh [--lint|--bootstrap] [--report] [--strict-hashes] <audit-workspace/protocol>'
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --bootstrap) MODE="bootstrap"; shift ;;
+        --bootstrap|--lint) MODE="lint"; shift ;;
         --report) REQUIRE_SIGNOFF=1; shift ;;
         --strict-hashes) STRICT_HASHES=1; shift ;;
         --) shift; break ;;
         -*) printf 'ERROR: unknown option %s\n' "$1" >&2
-            printf 'Usage: triage-check.sh [--bootstrap] [--report] [--strict-hashes] <audit-workspace/protocol>\n' >&2
+            printf '%s\n' "$USAGE" >&2
             exit 2 ;;
         *) break ;;
     esac
 done
-WORKSPACE="${1:?Usage: triage-check.sh [--bootstrap] [--report] [--strict-hashes] <audit-workspace/protocol>}"
+WORKSPACE="${1:?$USAGE}"
 
 failures=0
 TMP_CHECK="$(mktemp -d "${TMPDIR:-/tmp}/contract-audit-triage.XXXXXX")"
@@ -42,17 +52,45 @@ fail() {
     failures=$((failures + 1))
 }
 
+# Common fix hints, kept in one place so messages stay consistent.
+HINT_ONE_LINE="hint: write the value on the same line as '- Field:'; a bare header with an indented list below parses as empty, and an angle-bracket placeholder such as <value> counts as unfilled"
+HINT_PATH="hint: one workspace-relative path to a retained non-empty file, with no annotations after it"
+HINT_DEDUP="hint: three non-empty segments separated by '|', for example missing-check|asset-conservation|withdrawal"
+HINT_VERDICT="hint: start the value with PASS or CONFIRMED, then the evidence (a comma or dash after the word is fine)"
+HINT_INDEPENDENT="hint: this field states a fact about who reviewed the claim; when no separate reviewer exists, keep the candidate REPRODUCED and this record pending rather than writing yes"
+HINT_HEADING="hint: each finding is a level-2 section '## F-NN' followed by one-line '- Field: value' entries"
+
+# Field lookups are pure bash (no awk/grep forks): the checker runs hundreds of
+# them per record and the suite runs the checker a hundred times, so each
+# forked process costs minutes on CI runners. get_field sets FIELD_VALUE (first
+# occurrence, leading whitespace stripped) and FIELD_COUNT; field_value is the
+# command-substitution wrapper kept for call sites that need a string.
+get_field() {
+    local gf_file="$1" gf_prefix="- $2:" gf_line
+    FIELD_VALUE=""
+    FIELD_COUNT=0
+    [ -f "$gf_file" ] || return 0
+    while IFS= read -r gf_line || [ -n "$gf_line" ]; do
+        case "$gf_line" in
+            "$gf_prefix"*)
+                if [ "$FIELD_COUNT" -eq 0 ]; then
+                    FIELD_VALUE="${gf_line#"$gf_prefix"}"
+                    FIELD_VALUE="${FIELD_VALUE#"${FIELD_VALUE%%[![:space:]]*}"}"
+                fi
+                FIELD_COUNT=$((FIELD_COUNT + 1))
+                ;;
+        esac
+    done < "$gf_file"
+}
+
 field_value() {
-    file="$1"
-    field="$2"
-    awk -v prefix="- $field:" '
-        index($0, prefix) == 1 {
-            value = substr($0, length(prefix) + 1)
-            sub(/^[ \t]*/, "", value)
-            print value
-            exit
-        }
-    ' "$file"
+    get_field "$1" "$2"
+    printf '%s\n' "$FIELD_VALUE"
+}
+
+field_count() {
+    get_field "$1" "$2"
+    printf '%s\n' "$FIELD_COUNT"
 }
 
 table_field_value() {
@@ -68,12 +106,15 @@ table_field_value() {
     ' "$file"
 }
 
+# A placeholder is a template token like <value>; a comparison such as "x <= y"
+# or "amount < 1e18" is ordinary text and must not be rejected.
+PLACEHOLDER_RE='<[A-Za-z][^<>]*>'
 is_unset() {
     value="$1"
     case "$value" in
-        ""|'?'|none|NONE|TBD|tbd|TBD\ *|tbd\ *|unknown|UNKNOWN|unknown\ *|UNKNOWN\ *|C-NN|*'<'*'>'*) return 0 ;;
-        *) return 1 ;;
+        ""|'?'|none|NONE|TBD|tbd|TBD\ *|tbd\ *|unknown|UNKNOWN|unknown\ *|UNKNOWN\ *|C-NN) return 0 ;;
     esac
+    [[ "$value" =~ $PLACEHOLDER_RE ]]
 }
 
 is_non_substantive() {
@@ -87,28 +128,26 @@ is_non_substantive() {
 require_field() {
     file="$1"
     field="$2"
-    field_count="$(awk -v prefix="- $field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$file")"
-    if [ "$field_count" -ne 1 ]; then
-        fail "$file: field '$field' must appear exactly once (found $field_count)"
+    get_field "$file" "$field"
+    if [ "$FIELD_COUNT" -ne 1 ]; then
+        fail "$file: field '$field' must appear exactly once (found $FIELD_COUNT); hint: exactly one line starting '- $field:'"
         return
     fi
-    value="$(field_value "$file" "$field")"
-    if is_unset "$value"; then
-        fail "$file: missing or placeholder field '$field'"
+    if is_unset "$FIELD_VALUE"; then
+        fail "$file: missing or placeholder field '$field'; $HINT_ONE_LINE"
     fi
 }
 
 require_substantive_field() {
     file="$1"
     field="$2"
-    field_count="$(awk -v prefix="- $field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$file")"
-    if [ "$field_count" -ne 1 ]; then
-        fail "$file: substantive field '$field' must appear exactly once (found $field_count)"
+    get_field "$file" "$field"
+    if [ "$FIELD_COUNT" -ne 1 ]; then
+        fail "$file: substantive field '$field' must appear exactly once (found $FIELD_COUNT); hint: exactly one line starting '- $field:'"
         return
     fi
-    value="$(field_value "$file" "$field")"
-    if is_unset "$value" || is_non_substantive "$value"; then
-        fail "$file: missing, placeholder, or non-substantive field '$field'"
+    if is_unset "$FIELD_VALUE" || is_non_substantive "$FIELD_VALUE"; then
+        fail "$file: missing, placeholder, or non-substantive field '$field'; $HINT_ONE_LINE; N/A and none are not accepted here"
     fi
 }
 
@@ -172,8 +211,9 @@ sha256_file() {
     fi
 }
 
+SHA256_RE='^[0-9a-fA-F]{64}$'
 is_sha256_value() {
-    printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' | grep -Eq '^[0-9a-f]{64}$'
+    [[ "$1" =~ $SHA256_RE ]]
 }
 
 # Integrity-only provenance fields are optional for internal review and required
@@ -182,7 +222,8 @@ is_sha256_value() {
 require_field_when_strict_hashes() {
     hash_file="$1"
     hash_field="$2"
-    hash_count="$(awk -v prefix="- $hash_field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$hash_file")"
+    get_field "$hash_file" "$hash_field"
+    hash_count="$FIELD_COUNT"
     if [ "$hash_count" -gt 1 ]; then
         fail "$hash_file: field '$hash_field' must appear at most once (found $hash_count)"
         return
@@ -215,33 +256,37 @@ check_lock_binding_value() {
 check_lock_binding() {
     lock_file="$1"
     lock_field="$2"
-    lock_count="$(awk -v prefix="- $lock_field:" 'index($0, prefix) == 1 { count++ } END { print count + 0 }' "$lock_file")"
-    if [ "$lock_count" -gt 1 ]; then
-        fail "$lock_file: field '$lock_field' must appear at most once (found $lock_count)"
+    get_field "$lock_file" "$lock_field"
+    if [ "$FIELD_COUNT" -gt 1 ]; then
+        fail "$lock_file: field '$lock_field' must appear at most once (found $FIELD_COUNT)"
         return
     fi
-    check_lock_binding_value "$lock_file" "$(field_value "$lock_file" "$lock_field")"
+    check_lock_binding_value "$lock_file" "$FIELD_VALUE"
 }
 
+TARGET_ID_LIST_RE='^T-[0-9]+(,T-[0-9]+)*$'
 validate_target_id_value() {
     target_list_context="$1"
     target_list_value="$2"
-    if ! printf '%s\n' "$target_list_value" | grep -Eq '^T-[0-9]+(,T-[0-9]+)*$'; then
+    if ! [[ "$target_list_value" =~ $TARGET_ID_LIST_RE ]]; then
         fail "$target_list_context: target artifact IDs must be a canonical comma-separated T-NN list with no spaces"
         return
     fi
-    duplicate_target_id="$(printf '%s\n' "$target_list_value" | awk -F ',' '
-        { for (i = 1; i <= NF; i++) if (++seen[$i] == 2) { print $i; exit } }
-    ')"
-    if [ -n "$duplicate_target_id" ]; then
-        fail "$target_list_context: target artifact IDs repeat $duplicate_target_id"
-    fi
-    while IFS= read -r listed_target_id; do
-        [ -n "$listed_target_id" ] || continue
-        if ! grep -Fqx "$listed_target_id" "$TARGET_IDS"; then
-            fail "$target_list_context: target artifact IDs reference unknown $listed_target_id"
-        fi
-    done < <(printf '%s\n' "$target_list_value" | tr ',' '\n')
+    # Pure-bash duplicate and membership checks over the comma list.
+    # KNOWN_TARGET_IDS holds the manifest IDs as ",T-01,T-03,".
+    local tid_seen="," tid_rest="$target_list_value" tid
+    while [ -n "$tid_rest" ]; do
+        tid="${tid_rest%%,*}"
+        if [ "$tid_rest" = "$tid" ]; then tid_rest=""; else tid_rest="${tid_rest#*,}"; fi
+        case "$tid_seen" in
+            *",$tid,"*) fail "$target_list_context: target artifact IDs repeat $tid"; continue ;;
+        esac
+        tid_seen="$tid_seen$tid,"
+        case "${KNOWN_TARGET_IDS:-,}" in
+            *",$tid,"*) ;;
+            *) fail "$target_list_context: target artifact IDs reference unknown $tid" ;;
+        esac
+    done
 }
 
 validate_target_id_list() {
@@ -313,19 +358,21 @@ ledger_contains_key_and_canonical() {
 }
 
 workspace_path_has_symlink() {
-    relative_path="$1"
-    path_cursor="$WORKSPACE"
+    local relative_path="$1" path_cursor="$WORKSPACE" rest path_component
     if [ -L "$path_cursor" ]; then
         return 0
     fi
-    while IFS= read -r path_component; do
+    rest="$relative_path"
+    while [ -n "$rest" ]; do
+        path_component="${rest%%/*}"
+        if [ "$rest" = "$path_component" ]; then rest=""; else rest="${rest#*/}"; fi
         [ -n "$path_component" ] || continue
         [ "$path_component" = "." ] && continue
         path_cursor="$path_cursor/$path_component"
         if [ -L "$path_cursor" ]; then
             return 0
         fi
-    done < <(printf '%s\n' "$relative_path" | awk -F '/' '{ for (i = 1; i <= NF; i++) print $i }')
+    done
     return 1
 }
 
@@ -369,7 +416,7 @@ verify_workspace_artifact_values() {
     fi
 
     if [ ! -s "$artifact" ]; then
-        fail "$artifact_context: '$path_label' does not resolve to a non-empty file: $artifact"
+        fail "$artifact_context: '$path_label' does not resolve to a non-empty file: $artifact; $HINT_PATH"
         return
     fi
 
@@ -554,7 +601,7 @@ if [ "$MODE" = "final" ]; then
         scope_identity_value="$(table_field_value "$WORKSPACE/scope.md" "$field")"
         lock_identity_value="$(table_field_value "$WORKSPACE/target-lock.md" "$field")"
         if [ "$scope_identity_value" != "$lock_identity_value" ]; then
-            fail "$WORKSPACE/target-lock.md: target identity field '$field' must exactly match scope.md"
+            fail "$WORKSPACE/target-lock.md: target identity field '$field' must exactly match scope.md (scope: '$scope_identity_value' / lock: '$lock_identity_value'); hint: byte-for-byte, including comments and spacing"
         fi
     done
 
@@ -605,20 +652,23 @@ if [ "$MODE" = "final" ]; then
         fail "$WORKSPACE/target-lock.md: target artifact manifest validation failed"
     fi
 
-    TARGET_IDS="$TMP_CHECK/target-ids.txt"
-    TARGET_PATHS="$TMP_CHECK/target-paths.txt"
-    : > "$TARGET_IDS"
-    : > "$TARGET_PATHS"
+    # Membership sets kept in shell variables (",T-01,T-02," and a
+    # newline-delimited path list) so later lookups need no process.
+    KNOWN_TARGET_IDS=","
+    KNOWN_TARGET_PATHS="
+"
     actual_scope_files=0
     while IFS="$(printf '\t')" read -r target_id target_path target_hash target_role; do
         [ -n "$target_id" ] || continue
         actual_scope_files=$((actual_scope_files + 1))
-        if ! printf '%s\n' "$target_id" | grep -Eq '^T-[0-9]+$'; then
+        if ! [[ "$target_id" =~ ^T-[0-9]+$ ]]; then
             fail "$WORKSPACE/target-lock.md: target artifact ID must use exact T-NN grammar: $target_id"
-        elif grep -Fqx "$target_id" "$TARGET_IDS"; then
-            fail "$WORKSPACE/target-lock.md: duplicate target artifact ID: $target_id"
+        else
+            case "$KNOWN_TARGET_IDS" in
+                *",$target_id,"*) fail "$WORKSPACE/target-lock.md: duplicate target artifact ID: $target_id" ;;
+            esac
         fi
-        printf '%s\n' "$target_id" >> "$TARGET_IDS"
+        KNOWN_TARGET_IDS="$KNOWN_TARGET_IDS$target_id,"
 
         if is_unset "$target_path" || is_non_substantive "$target_path"; then
             fail "$WORKSPACE/target-lock.md: $target_id has a missing or non-substantive workspace path"
@@ -637,10 +687,13 @@ if [ "$MODE" = "final" ]; then
                 continue
                 ;;
         esac
-        if grep -Fqx "$target_path" "$TARGET_PATHS"; then
-            fail "$WORKSPACE/target-lock.md: duplicate target artifact path: $target_path"
-        fi
-        printf '%s\n' "$target_path" >> "$TARGET_PATHS"
+        case "$KNOWN_TARGET_PATHS" in
+            *"
+$target_path
+"*) fail "$WORKSPACE/target-lock.md: duplicate target artifact path: $target_path" ;;
+        esac
+        KNOWN_TARGET_PATHS="$KNOWN_TARGET_PATHS$target_path
+"
         if workspace_path_has_symlink "$target_path"; then
             fail "$WORKSPACE/$target_path: target artifact path must not traverse a symlink"
             continue
@@ -700,7 +753,7 @@ if [ "$MODE" = "final" ]; then
             return lower == "" || lower == "?" ||
                    lower ~ /^(tbd|unknown)([[:space:]:-]|$)/ ||
                    lower ~ /^(n\/a|none)([[:space:]:-]|$)/ ||
-                   lower ~ /<[^>]*>/
+                   lower ~ /<[a-z][^<>]*>/
         }
         function require_surface(name) { required[name] = 1 }
         function reconcile(surface, actual) {
@@ -745,7 +798,7 @@ if [ "$MODE" = "final" ]; then
                 errors++
             }
             if (invalid_evidence(evidence)) {
-                printf "coverage row %s requires substantive evidence\n", surface > "/dev/stderr"
+                printf "coverage row %s requires substantive evidence; hint: name the artifact or method that supports the counts (none, N/A and TBD are not accepted)\n", surface > "/dev/stderr"
                 errors++
             }
             if (surface == "In-scope target artifacts") reconcile(surface, actual_scope_files)
@@ -789,7 +842,7 @@ if [ "$MODE" = "final" ]; then
             return lower == "" || lower == "?" ||
                    lower ~ /^(tbd|unknown)([[:space:]:-]|$)/ ||
                    lower ~ /^(n\/a|none)([[:space:]:-]|$)/ ||
-                   lower ~ /<[^>]*>/
+                   lower ~ /<[a-z][^<>]*>/
         }
         /^##[[:space:]]+Method-Defined Security Coverage[[:space:]]*$/ { in_methods = 1; next }
         in_methods && /^##[[:space:]]/ { in_methods = 0 }
@@ -810,7 +863,7 @@ if [ "$MODE" = "final" ]; then
                 errors++
             }
             if (invalid(surface) || invalid(evidence) || invalid(residual)) {
-                printf "method-defined coverage surface %s requires substantive evidence and residual-blind-spot text\n", surface > "/dev/stderr"
+                printf "method-defined coverage surface %s requires substantive evidence and residual-blind-spot text; hint: state what was checked and what remains unverified; write no-residual-blind-spot-identified in words rather than none or N/A\n", surface > "/dev/stderr"
                 errors++
             }
         }
@@ -859,6 +912,9 @@ fi
 
 if grep -Eq '^- Severity:[[:space:]]*' "$WORKSPACE/findings.md"; then
     fail "$WORKSPACE/findings.md uses the legacy '- Severity:' field; migrate each accepted finding to '- Original severity:' and add the retained reporting fields documented in SKILL.md"
+fi
+if grep -Eq '^###+[[:space:]]+F-[0-9]+' "$WORKSPACE/findings.md"; then
+    fail "$WORKSPACE/findings.md: finding headings must be level-2 '## F-NN'; deeper headings are not parsed as findings; $HINT_HEADING"
 fi
 
 if ! awk -v require_signoff="$REQUIRE_SIGNOFF" -v strict_hashes="$STRICT_HASHES" '
@@ -1392,7 +1448,7 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                 }
             }
         '; then
-            fail "$candidate_file: Dedup key must use non-empty root-cause|invariant|sink segments"
+            fail "$candidate_file: Dedup key must use non-empty root-cause|invariant|sink segments; $HINT_DEDUP"
         fi
         manifest_ref="$(field_value "$candidate_file" "Verification manifest")"
         if [ "$manifest_ref" != "triage/reproducers/$candidate_id.md" ]; then
@@ -1415,7 +1471,7 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                     lower = tolower(trim(value))
                     return lower == "" || lower == "?" ||
                            lower ~ /^(tbd|unknown|n\/a|none)([[:space:]:-]|$)/ ||
-                           lower ~ /<[^>]*>/
+                           lower ~ /<[a-z][^<>]*>/
                 }
                 /^##[[:space:]]+Candidate Limitations[[:space:]]*$/ { in_limitations = 1; next }
                 in_limitations && /^##[[:space:]]/ { in_limitations = 0 }
@@ -1720,7 +1776,7 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                     fi
                     case "$independent" in
                         yes|true|confirmed) ;;
-                        *) fail "$validation: 'Independent from producer' must be yes/true/confirmed" ;;
+                        *) fail "$validation: 'Independent from producer' must be yes/true/confirmed; $HINT_INDEPENDENT" ;;
                     esac
 
                     reachability="$(field_value "$validation" "Actor/reachability verdict" | tr '[:lower:]' '[:upper:]')"
@@ -1730,30 +1786,26 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                     dedup_result="$(field_value "$validation" "Dedup disposition" | tr '[:lower:]' '[:upper:]')"
                     recommendation="$(field_value "$validation" "Recommendation" | tr '[:lower:]' '[:upper:]')"
 
-                    case "$reachability" in
-                        PASS\ *|PASS|CONFIRMED\ *|CONFIRMED) ;;
-                        *) fail "$validation: reachability verdict must explicitly start PASS or CONFIRMED" ;;
-                    esac
-                    case "$impossible_state" in
-                        PASS\ *|PASS|CONFIRMED\ *|CONFIRMED) ;;
-                        *) fail "$validation: impossible-state review must explicitly start PASS or CONFIRMED" ;;
-                    esac
-                    case "$oracle_result" in
-                        PASS\ *|PASS|CONFIRMED\ *|CONFIRMED) ;;
-                        *) fail "$validation: oracle/negative-control result must explicitly start PASS or CONFIRMED" ;;
-                    esac
-                    case "$fidelity_result" in
-                        PASS\ *|PASS|CONFIRMED\ *|CONFIRMED) ;;
-                        *) fail "$validation: target fidelity verdict must explicitly start PASS or CONFIRMED" ;;
-                    esac
-                    case "$dedup_result" in
-                        NOVEL\ *|NOVEL|UNIQUE\ *|UNIQUE|VARIANT-OF\ *|VARIANT-OF) ;;
-                        *) fail "$validation: validated candidate dedup disposition must start NOVEL, UNIQUE, or VARIANT-OF" ;;
-                    esac
-                    case "$recommendation" in
-                        INDEPENDENTLY-VALIDATED\ *|INDEPENDENTLY-VALIDATED|ACCEPT\ *|ACCEPT) ;;
-                        *) fail "$validation: status $status requires an acceptance recommendation" ;;
-                    esac
+                    # A verdict word may be followed by a space or punctuation
+                    # ("CONFIRMED, realAssets fell 29%"), never run into a word.
+                    if ! printf '%s\n' "$reachability" | grep -Eq '^(PASS|CONFIRMED)([^[:alnum:]]|$)'; then
+                        fail "$validation: 'Actor/reachability verdict' must start PASS or CONFIRMED; $HINT_VERDICT"
+                    fi
+                    if ! printf '%s\n' "$impossible_state" | grep -Eq '^(PASS|CONFIRMED)([^[:alnum:]]|$)'; then
+                        fail "$validation: 'Impossible-state review' must start PASS or CONFIRMED; $HINT_VERDICT"
+                    fi
+                    if ! printf '%s\n' "$oracle_result" | grep -Eq '^(PASS|CONFIRMED)([^[:alnum:]]|$)'; then
+                        fail "$validation: 'Impact criterion and falsification result' must start PASS or CONFIRMED; $HINT_VERDICT"
+                    fi
+                    if ! printf '%s\n' "$fidelity_result" | grep -Eq '^(PASS|CONFIRMED)([^[:alnum:]]|$)'; then
+                        fail "$validation: 'Target fidelity verdict' must start PASS or CONFIRMED; $HINT_VERDICT"
+                    fi
+                    if ! printf '%s\n' "$dedup_result" | grep -Eq '^(NOVEL|UNIQUE|VARIANT-OF)([^[:alnum:]]|$)'; then
+                        fail "$validation: 'Dedup disposition' must start NOVEL, UNIQUE, or VARIANT-OF (VARIANT-OF C-NN or F-NN)"
+                    fi
+                    if ! printf '%s\n' "$recommendation" | grep -Eq '^(INDEPENDENTLY-VALIDATED|ACCEPT)([^[:alnum:]]|$)'; then
+                        fail "$validation: status $status requires 'Recommendation' to start INDEPENDENTLY-VALIDATED or ACCEPT"
+                    fi
                 fi
                 ;;
         esac
@@ -1790,8 +1842,11 @@ if [ -n "$duplicate_accepted_key" ]; then
 fi
 
 if [ "$failures" -ne 0 ]; then
-    printf 'Triage check failed with %s error(s).\n' "$failures" >&2
+    printf 'Triage check failed with %s error(s) [mode: %s%s%s].\n' "$failures" "$MODE" \
+        "$([ "$REQUIRE_SIGNOFF" -eq 1 ] && printf ' --report')" \
+        "$([ "$STRICT_HASHES" -eq 1 ] && printf ' --strict-hashes')" >&2
+    printf 'Accepted field forms are documented in the workspace _template.md files and references/triage.md.\n' >&2
     exit 1
 fi
 
-printf 'Triage contract checks passed.\n'
+printf 'Triage contract checks passed [mode: %s].\n' "$MODE"

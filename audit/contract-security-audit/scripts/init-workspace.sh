@@ -65,17 +65,55 @@ if [ -z "$RESOLVED_CHAIN" ]; then
 fi
 CHAIN="$RESOLVED_CHAIN"
 
-# Determine native audit resources. Fail closed rather than silently applying the
-# wrong chain model: a Sui object-model playbook is not an Aptos playbook.
-case "$CHAIN" in
-    solana)           METRICS="metrics-solana.md"; PLAYBOOK="playbook-solana.md" ;;
-    sui)              METRICS="metrics-sui.md"; PLAYBOOK="playbook-sui.md" ;;
-    aptos)            echo "ERROR: Aptos is not production-supported: no native Aptos playbook or PoC harness." >&2
-                      exit 2 ;;
-    ethereum|arbitrum|optimism|base|polygon|bsc|avalanche|gnosis|linea|scroll|blast|mantle|mode|zksync|celo|sonic|hyperevm)
-                      METRICS="metrics-evm.md"; PLAYBOOK="inline in methodology.md" ;;
-    *)                echo "ERROR: unsupported chain '$CHAIN'; add a native playbook/config before auditing." >&2
-                      exit 2 ;;
+# Determine native audit resources from the chain entry itself. EVM chains are
+# the entries with a numeric chain_id and an explorer API; non-EVM entries name
+# their own metrics/playbook files. Fail closed rather than silently applying
+# the wrong chain model: a Sui object-model playbook is not an Aptos playbook.
+if command -v jq >/dev/null 2>&1; then
+    CHAIN_CLASS_INFO="$(jq -r --arg chain "$CHAIN" '
+        .[$chain]
+        | if (.production_supported // true) == false then "unsupported"
+          elif (.chain_id | type) == "number" and (.explorer_api | type) == "string" then "evm"
+          elif (.metrics_file | type) == "string" and (.playbook_file | type) == "string" then "native\t" + .metrics_file + "\t" + .playbook_file
+          else "unsupported" end
+    ' "$SKILL_DIR/config/chains.json")"
+else
+    CHAIN_CLASS_INFO="$(python3 - "$SKILL_DIR/config/chains.json" "$CHAIN" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    entry = json.load(handle)[sys.argv[2]]
+if entry.get("production_supported", True) is False:
+    print("unsupported")
+elif isinstance(entry.get("chain_id"), int) and isinstance(entry.get("explorer_api"), str):
+    print("evm")
+elif isinstance(entry.get("metrics_file"), str) and isinstance(entry.get("playbook_file"), str):
+    print("native\t%s\t%s" % (entry["metrics_file"], entry["playbook_file"]))
+else:
+    print("unsupported")
+PY
+)"
+fi
+
+case "$CHAIN_CLASS_INFO" in
+    evm)
+        METRICS="metrics-evm.md"; PLAYBOOK="inline in methodology.md" ;;
+    native*)
+        METRICS="$(printf '%s' "$CHAIN_CLASS_INFO" | cut -f2)"
+        PLAYBOOK="$(printf '%s' "$CHAIN_CLASS_INFO" | cut -f3)"
+        if [ ! -f "$SKILL_DIR/references/$METRICS" ] || [ ! -f "$SKILL_DIR/references/$PLAYBOOK" ]; then
+            echo "ERROR: chain '$CHAIN' names references that are not bundled ($METRICS, $PLAYBOOK)." >&2
+            exit 2
+        fi
+        ;;
+    *)
+        if [ "$CHAIN" = "aptos" ]; then
+            echo "ERROR: Aptos is not production-supported: no native Aptos playbook or PoC harness." >&2
+        else
+            echo "ERROR: unsupported chain '$CHAIN'; add a complete config entry (and a native playbook for non-EVM chains) before auditing." >&2
+        fi
+        exit 2 ;;
 esac
 
 # An existing workspace is bound to one canonical chain. Refuse to rewrite only
@@ -281,13 +319,22 @@ EOF
 [ -f "$WORKSPACE/triage/candidates/_template.md" ] || cat > "$WORKSPACE/triage/candidates/_template.md" <<'EOF'
 # C-NN — Candidate Title
 
+<!-- Format rules the checker enforces (run triage-check.sh --lint early):
+     every field is ONE line "- Field: value"; a bare "- Field:" with a list
+     below parses as empty. TBD, N/A, none and <placeholders> count as unfilled
+     where a value is required. Target revision, Deployment / package / program
+     and Production build / configuration must match target-lock.md byte for
+     byte. Status is one of PROPOSED, HUNTING, REPRODUCED,
+     INDEPENDENTLY-VALIDATED, HUMAN-ACCEPTED, REJECTED, DUPLICATE, OUT-OF-SCOPE,
+     INCONCLUSIVE. -->
+
 - Candidate ID: C-NN
-- Target artifact IDs: T-NN <!-- comma-separated with no spaces, e.g. T-01,T-02 -->
+- Target artifact IDs: T-NN <!-- comma-separated with no spaces, e.g. T-01,T-02; each must exist in target-lock.md -->
 - Target lock SHA-256: N/A <!-- optional integrity binding; a recorded digest must match target-lock.md -->
 - Target component: TBD
-- Target revision: TBD
-- Deployment / package / program: TBD
-- Production build / configuration: TBD
+- Target revision: TBD <!-- copy the exact "Source revision" value from target-lock.md -->
+- Deployment / package / program: TBD <!-- copy the exact "Deployment / program / package IDs" value from target-lock.md -->
+- Production build / configuration: TBD <!-- copy the exact "Production build/profile or target-identity procedure" value from target-lock.md -->
 - Threat actor / entry: TBD
 - Required actor capabilities: TBD
 - Invariant: TBD
@@ -295,12 +342,12 @@ EOF
 - Claimed impact / success criterion: TBD
 - Falsification / control: TBD
 - Verification manifest: triage/reproducers/C-NN.md
-- Dedup key: TBD
-- Known-issue search: TBD
+- Dedup key: TBD <!-- root-cause|invariant|sink, three non-empty segments, e.g. missing-check|asset-conservation|withdrawal -->
+- Known-issue search: TBD <!-- which sources were searched: in-repo audits, advisories, vendor blog, prior candidates -->
 - Producer: TBD
 - Producer context / timestamp: TBD
 - Source and verification artifact hashes: N/A <!-- optional; required under --strict-hashes -->
-- Cost versus impact: TBD
+- Cost versus impact: TBD <!-- end with an explicit "reaches loss of funds/assets: yes|no" -->
 - Potential severity / materiality: TBD / MATERIAL <!-- engagement taxonomy label / MATERIAL or NON-MATERIAL -->
 - Coverage limitation: TBD <!-- N/A unless INCONCLUSIVE; then cite coverage.md row -->
 - Canonical candidate / finding: TBD <!-- N/A unless DUPLICATE; then cite C-NN/F-NN -->
@@ -333,21 +380,21 @@ EOF
 - Target fidelity: <!-- DEPLOYED / RECONSTRUCTION / LOGIC -->
 - Target fidelity basis:
 - State anchor kind: <!-- BLOCK / SLOT / TRANSACTION / OBJECT-VERSIONS / STATE-ROOT / SNAPSHOT / DEPLOYMENT-VERSION / SOURCE-REVISION / PRE-DEPLOYMENT / OTHER-PINNED -->
-- State anchor value:
+- State anchor value: <!-- BLOCK/SLOT: a bare positive integer; TRANSACTION: the hash; SOURCE-REVISION/PRE-DEPLOYMENT: the commit; never latest/head -->
 - Producer context and evidence revision:
 - Toolchain/OS versions:
 - Actor initial conditions and capital/capability acquisition:
 - Preconditions checked:
 - Action sequence or proof derivation:
 - Evidence method:
-- Primary verification artifact path:
+- Primary verification artifact path: <!-- one workspace-relative path to a retained non-empty file (e.g. poc/C-NN.t.sol); no annotations after it -->
 - Primary verification artifact SHA-256: N/A <!-- optional; the artifact itself must resolve -->
 - Exact command or review procedure:
 - Claimed impact / success criterion:
-- Primary evidence path:
+- Primary evidence path: <!-- one workspace-relative path (e.g. evidence/C-NN-poc.log) -->
 - Primary evidence SHA-256: N/A <!-- optional; the artifact itself must resolve -->
 - Falsification / control procedure and expected discriminator:
-- Falsification / control evidence path:
+- Falsification / control evidence path: <!-- one workspace-relative path; may equal the primary evidence path when that file holds the control run -->
 - Falsification / control evidence SHA-256: N/A <!-- optional; the artifact itself must resolve -->
 - Production-state deviations:
 - Repeatability / proof-review result:
@@ -367,22 +414,22 @@ EOF
 - Candidate: C-NN
 - Target artifact IDs: T-NN
 - Target lock SHA-256: N/A <!-- optional integrity binding; verified when recorded -->
-- Validator: TBD
+- Validator: TBD <!-- must differ from the candidate's Producer -->
 - Validator context / timestamp: TBD
-- Independent from producer: TBD
+- Independent from producer: TBD <!-- yes only when a separate reviewer did this work; if none exists, leave the candidate REPRODUCED and this record pending -->
 - Independent verification procedure: TBD
-- Target identity / production configuration: TBD
-- Independent verification result: TBD <!-- PASS/CONFIRMED with evidence -->
+- Target identity / production configuration: TBD <!-- must contain the locked source revision, build/profile, chain, deployment and state anchor values -->
+- Independent verification result: TBD <!-- start with PASS or CONFIRMED, then the evidence; a comma or dash after the word is fine -->
 - Evidence verdict: TBD <!-- must match the verification manifest -->
-- Target fidelity verdict: TBD <!-- PASS/CONFIRMED with deployed/reconstruction/logic basis -->
-- Actor/reachability verdict: TBD <!-- PASS/CONFIRMED — threat-model-valid actor/entry and capabilities -->
-- Impossible-state review: TBD <!-- PASS/CONFIRMED — no unreachable state or hidden privilege -->
-- Impact criterion and falsification result: TBD <!-- PASS/CONFIRMED — consequence established; method-appropriate falsification addressed -->
-- Dedup disposition: TBD <!-- NOVEL / UNIQUE / VARIANT-OF C-NN or F-NN -->
+- Target fidelity verdict: TBD <!-- start with PASS or CONFIRMED; deployed/reconstruction/logic basis -->
+- Actor/reachability verdict: TBD <!-- start with PASS or CONFIRMED — threat-model-valid actor/entry and capabilities -->
+- Impossible-state review: TBD <!-- start with PASS or CONFIRMED — no unreachable state or hidden privilege -->
+- Impact criterion and falsification result: TBD <!-- start with PASS or CONFIRMED — consequence established; method-appropriate falsification addressed -->
+- Dedup disposition: TBD <!-- start with NOVEL, UNIQUE, or VARIANT-OF C-NN/F-NN -->
 - Actor cost versus impact: TBD
-- Recommendation: TBD <!-- INDEPENDENTLY-VALIDATED / ACCEPT -->
+- Recommendation: TBD <!-- start with INDEPENDENTLY-VALIDATED or ACCEPT; otherwise REJECTED / DUPLICATE / OUT-OF-SCOPE / INCONCLUSIVE -->
 - Decision reason: TBD
-- Validation evidence path: TBD
+- Validation evidence path: TBD <!-- one workspace-relative path to a retained non-empty file -->
 - Validation evidence SHA-256: N/A <!-- optional; the artifact itself must resolve -->
 - Human decision / acceptor / date: TBD <!-- report gate, not the findings gate: ACCEPTED / human name or role / YYYY-MM-DD -->
 EOF
@@ -393,6 +440,11 @@ EOF
 > Evidence-closed, independently validated findings only. Proof admits a finding
 > here; human sign-off is added before any report is issued. All hypotheses and
 > non-validated dispositions stay in `triage/candidates.md`.
+>
+> Format the checker enforces: each finding is a level-2 section `## F-NN`
+> (deeper headings are not parsed) with one-line `- Field: value` entries; the
+> candidate, dedup key, target artifact IDs and verdicts must match the linked
+> `triage/` records exactly. Run `triage-check.sh --lint` after adding one.
 
 ## Format
 
@@ -432,6 +484,9 @@ EOF
 > Security coverage is method-defined: record the obligations/surfaces actually
 > selected, the method/evidence, and residual blind spots. `PARTIAL` or `OPEN` is
 > a limitation, never a pass. Do not invent Atlas/lens rows for methods not used.
+> Keep the two `##` headings below verbatim; the final gate requires numeric
+> counts that reconcile to the workspace (Reviewed + Open = Expected) and does
+> not accept none, N/A or TBD in any cell.
 
 ## Objective Artifact Reconciliation
 

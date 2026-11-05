@@ -474,48 +474,239 @@ fi
 {
     echo "## Permission Event Logs"
     echo ""
+    echo "Each count below is bound to the queried address and block window stated in its STATUS; PARTIAL or FAILED queries are not zero counts. Raw responses: tmp/collect-onchain-data/<run>/logs/."
+    echo ""
 } >> "$OUTPUT"
 
+# Event-log collection discipline (references/evm-tools.md, "Counting
+# discipline"): a log count is evidence only when every block range in the
+# window was actually answered. This fetcher therefore
+#   - walks explicit [from,to] windows in chunks with retry/backoff and halves
+#     the chunk on provider limits instead of giving up on the whole range;
+#   - never turns a failed range into "0 events": the first output line is a
+#     STATUS record naming the window, the request count and any FAILED ranges;
+#   - starts at the contract creation block when the node can serve historical
+#     code (binary search over eth_getCode), else at block 0 under a request
+#     budget, and reports the uncovered remainder;
+#   - retains every raw response under tmp/collect-onchain-data/<run>/logs/.
+# Override the defaults for a provider's limits (for example LOG_CHUNK_BLOCKS=10000
+# on free tiers that cap eth_getLogs at 10k blocks).
+LOG_CHUNK_BLOCKS="${LOG_CHUNK_BLOCKS:-100000}"
+LOG_MIN_CHUNK_BLOCKS="${LOG_MIN_CHUNK_BLOCKS:-2000}"
+LOG_RETRIES="${LOG_RETRIES:-3}"
+LOG_RETRY_DELAY="${LOG_RETRY_DELAY:-2}"
+LOG_MAX_REQUESTS="${LOG_MAX_REQUESTS:-400}"
+LOG_INCOMPLETE_QUERIES=0
+LOG_RUN_DIR=""
+if LOG_RUN_DIR="$(audit_create_retained_run_dir "$WORKSPACE" "collect-onchain-data" "logs" 2>/dev/null)" && [ -n "$LOG_RUN_DIR" ]; then
+    mkdir -p "$LOG_RUN_DIR/logs" 2>/dev/null || LOG_RUN_DIR=""
+fi
+
+# Binary-search the first block at which the address has code. Needs an archive
+# capable node; prints nothing (caller falls back to block 0) on any RPC error.
+find_creation_block() {
+    local addr="$1"
+    local latest="$2"
+    local cache="${LOG_RUN_DIR:-}/creation-$addr.txt"
+    if [ -n "$LOG_RUN_DIR" ] && [ -s "$cache" ]; then
+        cat "$cache"
+        return 0
+    fi
+    local lo=0 hi="$latest" mid code
+    # Two probes decide whether historical code is served at all.
+    code="$(cast code "$addr" --block "$hi" --rpc-url "$RPC_URL" --rpc-timeout "$CAST_TIMEOUT" 2>/dev/null)" || return 1
+    [ -n "$code" ] && [ "$code" != "0x" ] || return 1
+    code="$(cast code "$addr" --block 0 --rpc-url "$RPC_URL" --rpc-timeout "$CAST_TIMEOUT" 2>/dev/null)" || return 1
+    while [ "$lo" -lt "$hi" ]; do
+        mid=$(( (lo + hi) / 2 ))
+        code="$(cast code "$addr" --block "$mid" --rpc-url "$RPC_URL" --rpc-timeout "$CAST_TIMEOUT" 2>/dev/null)" || return 1
+        if [ -n "$code" ] && [ "$code" != "0x" ]; then
+            hi="$mid"
+        else
+            lo=$((mid + 1))
+        fi
+    done
+    [ -n "$LOG_RUN_DIR" ] && printf '%s\n' "$lo" > "$cache" 2>/dev/null
+    printf '%s\n' "$lo"
+}
+
+# Prints one STATUS line followed by the raw `cast logs` output.
+#   STATUS=COMPLETE|PARTIAL|FAILED from=<block> to=<block> requests=<n> failed_ranges=<a-b,...|none> uncovered=<a-b|none>
 fetch_event_logs() {
     local addr="$1"
     local topic0="$2"
     local rpc="$3"
-
-    local result=""
-
-    # Try last 500K blocks first (works on most RPCs including free tiers)
-    local latest
-    latest=$(cast block-number --rpc-url "$rpc" 2>/dev/null || echo "")
-    if [ -n "$latest" ]; then
-        local from=$((latest - 500000))
-        [ "$from" -lt 0 ] && from=0
-        result=$(cast logs --from-block "$from" --address "$addr" "$topic0" --rpc-url "$rpc" 2>/dev/null) && {
-            [ -n "$result" ] && {
-                # Got results from recent history — try full range for completeness
-                local full_result=""
-                full_result=$(cast logs --from-block 0 --address "$addr" "$topic0" --rpc-url "$rpc" 2>/dev/null) && {
-                    [ -n "$full_result" ] && { echo "$full_result"; return 0; }
-                }
-                # Full range failed, use partial
-                echo "PARTIAL_HISTORY"; echo "$result"; echo "WARNING: Only last ~500K blocks retrieved. Historical permission changes before block $from may be missing. Use Dune Analytics or an archive RPC for complete event history." >&2; return 0;
-            }
-        }
+    local to="${OBSERVED_START_BLOCK:-}"
+    [ -n "$to" ] || to="$(cast block-number --rpc-url "$rpc" --rpc-timeout "$CAST_TIMEOUT" 2>/dev/null || echo "")"
+    if [ -z "$to" ]; then
+        printf 'STATUS=FAILED from=? to=? requests=0 failed_ranges=all uncovered=all\n'
+        return 1
     fi
-
-    # Fallback: try full range directly (for archive RPCs)
-    result=$(cast logs --from-block 0 --address "$addr" "$topic0" --rpc-url "$rpc" 2>/dev/null) && {
-        [ -n "$result" ] && { echo "$result"; return 0; }
-    }
-
-    return 1
+    local from
+    from="$(find_creation_block "$addr" "$to" 2>/dev/null || echo 0)"
+    [ -n "$from" ] || from=0
+    local chunk="$LOG_CHUNK_BLOCKS" cur="$from" end requests=0 attempt ok failed="" uncovered="none" result
+    local body errfile range_error provider_cap
+    body="$(mktemp "${TMPDIR:-/tmp}/contract-audit-logs.XXXXXX")" || return 1
+    errfile="$(mktemp "${TMPDIR:-/tmp}/contract-audit-logs-err.XXXXXX")" || { rm -f "$body"; return 1; }
+    while [ "$cur" -le "$to" ]; do
+        end=$((cur + chunk - 1))
+        [ "$end" -gt "$to" ] && end="$to"
+        if [ "$requests" -ge "$LOG_MAX_REQUESTS" ]; then
+            uncovered="$cur-$to"
+            break
+        fi
+        attempt=0
+        ok=0
+        range_error=0
+        while [ "$attempt" -lt "$LOG_RETRIES" ]; do
+            requests=$((requests + 1))
+            if result="$(cast logs --from-block "$cur" --to-block "$end" --address "$addr" "$topic0" \
+                    --rpc-url "$rpc" --rpc-timeout "$CAST_TIMEOUT" 2>"$errfile")"; then
+                ok=1
+                [ -n "$result" ] && printf '%s\n' "$result" >> "$body"
+                break
+            fi
+            # A provider window/result cap is deterministic: shrink at once
+            # instead of retrying the same range. Only transport errors retry.
+            if grep -Eiq 'range|limit|too (many|large)|exceed|more than|10000|results' "$errfile"; then
+                range_error=1
+                # Use the provider's stated cap when it names one
+                # ("range 100000 exceeds limit of 10000").
+                provider_cap="$(grep -Eio 'limit of [0-9]+|max(imum)? (block )?range( is| of)? [0-9]+|[0-9]+ block(s)? range' "$errfile" \
+                    | grep -Eo '[0-9]+' | head -1)"
+                if [ -n "$provider_cap" ] && [ "$provider_cap" -ge "$LOG_MIN_CHUNK_BLOCKS" ] 2>/dev/null \
+                   && [ "$provider_cap" -lt "$chunk" ]; then
+                    chunk="$provider_cap"
+                else
+                    chunk=$((chunk / 2))
+                fi
+                [ "$chunk" -lt "$LOG_MIN_CHUNK_BLOCKS" ] && chunk="$LOG_MIN_CHUNK_BLOCKS"
+                break
+            fi
+            attempt=$((attempt + 1))
+            sleep $((LOG_RETRY_DELAY * attempt))
+        done
+        if [ "$ok" -eq 1 ]; then
+            cur=$((end + 1))
+        elif [ "$range_error" -eq 1 ] && [ "$end" -gt $((cur + LOG_MIN_CHUNK_BLOCKS - 1)) ]; then
+            : # chunk was resized above; retry the same start block with the smaller window
+        elif [ "$chunk" -gt "$LOG_MIN_CHUNK_BLOCKS" ]; then
+            chunk=$((chunk / 2))
+            [ "$chunk" -lt "$LOG_MIN_CHUNK_BLOCKS" ] && chunk="$LOG_MIN_CHUNK_BLOCKS"
+        else
+            failed="${failed:+$failed,}$cur-$end"
+            cur=$((end + 1))
+        fi
+    done
+    rm -f "$errfile"
+    # COMPLETE: every block in [from,to] answered. PARTIAL: some answered, some
+    # failed or not queried (budget). FAILED: nothing answered at all.
+    local status="COMPLETE" covered="$from-$to"
+    if [ -n "$failed" ] || [ "$uncovered" != "none" ]; then
+        status="PARTIAL"
+        if [ "$uncovered" != "none" ]; then
+            covered="$from-$((cur - 1))"
+        fi
+        if [ "$cur" -le "$from" ] && [ "$uncovered" != "none" ]; then
+            status="FAILED"
+            covered="none"
+        elif [ -n "$failed" ] && [ "$uncovered" = "none" ] && [ "$failed" = "$from-$to" ]; then
+            status="FAILED"
+            covered="none"
+        fi
+    fi
+    printf 'STATUS=%s from=%s to=%s covered=%s requests=%s failed_ranges=%s uncovered=%s\n' \
+        "$status" "$from" "$to" "$covered" "$requests" "${failed:-none}" "$uncovered"
+    cat "$body"
+    if [ -n "$LOG_RUN_DIR" ]; then
+        {
+            printf 'STATUS=%s from=%s to=%s covered=%s requests=%s failed_ranges=%s uncovered=%s\n' \
+                "$status" "$from" "$to" "$covered" "$requests" "${failed:-none}" "$uncovered"
+            cat "$body"
+        } > "$LOG_RUN_DIR/logs/$addr-$topic0.txt" 2>/dev/null
+    fi
+    rm -f "$body"
+    [ "$status" != "FAILED" ]
 }
 
 count_log_entries() {
-    echo "$1" | grep -c "^- address:" 2>/dev/null || echo "0"
+    # grep -c prints 0 itself when nothing matches (and exits 1), so no fallback
+    # echo: that would print a second line.
+    echo "$1" | grep -c "^- address:" 2>/dev/null || true
 }
 
 last_log_entry() {
     echo "$1" | grep -A6 "^- address:" | tail -7
+}
+
+# Writes one event section to $OUTPUT.
+#   report_event_logs <addr> <topic0> <label> <style> [heading-prefix] [intro]
+# style: last | list20 | head:N   heading-prefix: "**" (bold line) or "###"
+report_event_logs() {
+    local addr="$1" topic0="$2" label="$3" style="$4" prefix="${5:-**}" intro="${6:-}"
+    local raw header body status failed uncovered count note open close
+    raw="$(fetch_event_logs "$addr" "$topic0" "$RPC_URL" 2>/dev/null || true)"
+    header="${raw%%
+*}"
+    body="${raw#*
+}"
+    [ "$body" = "$raw" ] && body=""
+    status="$(printf '%s\n' "$header" | sed -n 's/^STATUS=\([A-Z]*\).*/\1/p')"
+    covered="$(printf '%s\n' "$header" | sed -n 's/.* covered=\([^ ]*\).*/\1/p')"
+    failed="$(printf '%s\n' "$header" | sed -n 's/.*failed_ranges=\([^ ]*\).*/\1/p')"
+    uncovered="$(printf '%s\n' "$header" | sed -n 's/.*uncovered=\([^ ]*\).*/\1/p')"
+    count="$(count_log_entries "$body")"
+    # fetch_event_logs runs in a command substitution, so the incomplete-query
+    # counter is maintained here, in the parent shell.
+    [ "$status" = "COMPLETE" ] || LOG_INCOMPLETE_QUERIES=$((LOG_INCOMPLETE_QUERIES + 1))
+    case "$status" in
+        COMPLETE) note=" (blocks ${covered})" ;;
+        PARTIAL)
+            note=" (PARTIAL: counted over blocks ${covered}; failed ranges ${failed:-none}; not queried ${uncovered:-none}. A zero or low count is not evidence of absence; raise LOG_MAX_REQUESTS or use a provider with a larger eth_getLogs window to close the gap)" ;;
+        *)
+            count="unknown"
+            note=" (FAILED: no block range was answered; count unknown, not zero)" ;;
+    esac
+    if [ "$prefix" = "###" ]; then
+        open="### $label: $count events$note"
+    else
+        open="**$label**: $count events$note"
+    fi
+    {
+        echo "$open"
+        [ -n "$intro" ] && { echo ""; echo "$intro"; }
+        if [ "$count" != "unknown" ] && [ "$count" -gt 0 ] 2>/dev/null; then
+            case "$style" in
+                last)
+                    echo ""
+                    echo "Last event:"
+                    echo '```'
+                    last_log_entry "$body"
+                    echo '```'
+                    ;;
+                list20)
+                    if [ "$count" -le 20 ]; then
+                        echo '```'
+                        echo "$body"
+                        echo '```'
+                    else
+                        echo ""
+                        echo "Last 5 events:"
+                        echo '```'
+                        echo "$body" | grep -A6 "^- address:" | tail -35
+                        echo '```'
+                    fi
+                    ;;
+                head:*)
+                    echo '```'
+                    echo "$body" | head -"${style#head:}"
+                    echo '```'
+                    ;;
+            esac
+        fi
+        [ "$prefix" = "###" ] && echo ""
+    } >> "$OUTPUT"
 }
 
 OT_TOPIC="0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0"
@@ -537,85 +728,12 @@ if [ "$RPC_OK" -eq 1 ]; then
         echo "### $addr" >> "$OUTPUT"
         echo "" >> "$OUTPUT"
 
-        PARTIAL=""
-
-        OT_LOGS=$(fetch_event_logs "$addr" "$OT_TOPIC" "$RPC_URL" 2>/dev/null || true)
-        if [ -n "$OT_LOGS" ]; then
-            [[ "$OT_LOGS" == PARTIAL_HISTORY* ]] && PARTIAL=" (partial -- historical events may be missing, use archive RPC or Dune for full history)" && OT_LOGS="${OT_LOGS#PARTIAL_HISTORY}"
-            OT_COUNT=$(count_log_entries "$OT_LOGS")
-            OT_LAST=$(last_log_entry "$OT_LOGS")
-            {
-                echo "**OwnershipTransferred**: ${OT_COUNT} events${PARTIAL}"
-                echo ""
-                echo "Last event:"
-                echo '```'
-                echo "$OT_LAST"
-                echo '```'
-            } >> "$OUTPUT"
-        else
-            echo "**OwnershipTransferred**: 0 events" >> "$OUTPUT"
-        fi
-        PARTIAL=""
-
-        RG_LOGS=$(fetch_event_logs "$addr" "$RG_TOPIC" "$RPC_URL" 2>/dev/null || true)
-        if [ -n "$RG_LOGS" ]; then
-            [[ "$RG_LOGS" == PARTIAL_HISTORY* ]] && PARTIAL=" (partial)" && RG_LOGS="${RG_LOGS#PARTIAL_HISTORY}"
-            RG_COUNT=$(count_log_entries "$RG_LOGS")
-            {
-                echo "**RoleGranted**: ${RG_COUNT} events${PARTIAL}"
-                if [ "$RG_COUNT" -le 20 ] 2>/dev/null; then
-                    echo '```'
-                    echo "$RG_LOGS"
-                    echo '```'
-                else
-                    echo ""
-                    echo "Last 5 events:"
-                    echo '```'
-                    echo "$RG_LOGS" | grep -A6 "^- address:" | tail -35
-                    echo '```'
-                fi
-            } >> "$OUTPUT"
-        else
-            echo "**RoleGranted**: 0 events (no AccessControl)" >> "$OUTPUT"
-        fi
-        PARTIAL=""
-
-        RR_LOGS=$(fetch_event_logs "$addr" "$RR_TOPIC" "$RPC_URL" 2>/dev/null || true)
-        if [ -n "$RR_LOGS" ]; then
-            [[ "$RR_LOGS" == PARTIAL_HISTORY* ]] && PARTIAL=" (partial)" && RR_LOGS="${RR_LOGS#PARTIAL_HISTORY}"
-            RR_COUNT=$(count_log_entries "$RR_LOGS")
-            {
-                echo "**RoleRevoked**: ${RR_COUNT} events${PARTIAL}"
-                if [ "$RR_COUNT" -le 20 ] 2>/dev/null; then
-                    echo '```'
-                    echo "$RR_LOGS"
-                    echo '```'
-                else
-                    echo ""
-                    echo "Last 5 events:"
-                    echo '```'
-                    echo "$RR_LOGS" | grep -A6 "^- address:" | tail -35
-                    echo '```'
-                fi
-            } >> "$OUTPUT"
-        else
-            echo "**RoleRevoked**: 0 events" >> "$OUTPUT"
-        fi
-        PARTIAL=""
-
-        RAC_LOGS=$(fetch_event_logs "$addr" "$RAC_TOPIC" "$RPC_URL" 2>/dev/null || true)
-        if [ -n "$RAC_LOGS" ]; then
-            [[ "$RAC_LOGS" == PARTIAL_HISTORY* ]] && PARTIAL=" (partial)" && RAC_LOGS="${RAC_LOGS#PARTIAL_HISTORY}"
-            RAC_COUNT=$(count_log_entries "$RAC_LOGS")
-            {
-                echo "**RoleAdminChanged**: ${RAC_COUNT} events${PARTIAL}"
-                echo '```'
-                echo "$RAC_LOGS" | head -42
-                echo '```'
-            } >> "$OUTPUT"
-        else
-            echo "**RoleAdminChanged**: 0 events" >> "$OUTPUT"
-        fi
+        echo "Queried address: $addr. Events emitted by another contract (for example a separate access manager or token) are not counted here." >> "$OUTPUT"
+        echo "" >> "$OUTPUT"
+        report_event_logs "$addr" "$OT_TOPIC" "OwnershipTransferred" last
+        report_event_logs "$addr" "$RG_TOPIC" "RoleGranted" list20
+        report_event_logs "$addr" "$RR_TOPIC" "RoleRevoked" list20
+        report_event_logs "$addr" "$RAC_TOPIC" "RoleAdminChanged" head:42
 
         echo "" >> "$OUTPUT"
     done
@@ -641,86 +759,14 @@ if [ "$RPC_OK" -eq 1 ]; then
             echo ""
         } >> "$OUTPUT"
 
-        PARTIAL=""
-
-        # TargetFunctionRoleUpdated — function-to-role permission mapping
-        TFRU_LOGS=$(fetch_event_logs "$addr" "$AM_TFRU_TOPIC" "$RPC_URL" 2>/dev/null || true)
-        if [ -n "$TFRU_LOGS" ]; then
-            [[ "$TFRU_LOGS" == PARTIAL_HISTORY* ]] && PARTIAL=" (partial)" && TFRU_LOGS="${TFRU_LOGS#PARTIAL_HISTORY}"
-            TFRU_COUNT=$(count_log_entries "$TFRU_LOGS")
-            {
-                echo "### TargetFunctionRoleUpdated: ${TFRU_COUNT} events${PARTIAL}"
-                echo ""
-                echo "Maps (target, selector) → roleId. Use to reconstruct the permission map."
-                echo '```'
-                echo "$TFRU_LOGS" | head -100
-                echo '```'
-                echo ""
-            } >> "$OUTPUT"
-        else
-            echo "### TargetFunctionRoleUpdated: 0 events" >> "$OUTPUT"
-            echo "" >> "$OUTPUT"
-        fi
-        PARTIAL=""
-
-        # OperationScheduled — pending timelocked operations
-        OPSCHED_LOGS=$(fetch_event_logs "$addr" "$AM_OPSCHED_TOPIC" "$RPC_URL" 2>/dev/null || true)
-        if [ -n "$OPSCHED_LOGS" ]; then
-            [[ "$OPSCHED_LOGS" == PARTIAL_HISTORY* ]] && PARTIAL=" (partial)" && OPSCHED_LOGS="${OPSCHED_LOGS#PARTIAL_HISTORY}"
-            OPSCHED_COUNT=$(count_log_entries "$OPSCHED_LOGS")
-            {
-                echo "### OperationScheduled: ${OPSCHED_COUNT} events${PARTIAL}"
-                echo ""
-                echo "Pending timelocked operations. Cross-reference with OperationExecuted to find unexecuted ops."
-                echo '```'
-                echo "$OPSCHED_LOGS" | head -100
-                echo '```'
-                echo ""
-            } >> "$OUTPUT"
-        else
-            echo "### OperationScheduled: 0 events" >> "$OUTPUT"
-            echo "" >> "$OUTPUT"
-        fi
-        PARTIAL=""
-
-        # RoleGuardianChanged — guardian configuration
-        RGCHANGE_LOGS=$(fetch_event_logs "$addr" "$AM_RGCHANGE_TOPIC" "$RPC_URL" 2>/dev/null || true)
-        if [ -n "$RGCHANGE_LOGS" ]; then
-            [[ "$RGCHANGE_LOGS" == PARTIAL_HISTORY* ]] && PARTIAL=" (partial)" && RGCHANGE_LOGS="${RGCHANGE_LOGS#PARTIAL_HISTORY}"
-            RGCHANGE_COUNT=$(count_log_entries "$RGCHANGE_LOGS")
-            {
-                echo "### RoleGuardianChanged: ${RGCHANGE_COUNT} events${PARTIAL}"
-                echo ""
-                echo "Guardian assignment for roles. Guardians can cancel scheduled operations."
-                echo '```'
-                echo "$RGCHANGE_LOGS" | head -50
-                echo '```'
-                echo ""
-            } >> "$OUTPUT"
-        else
-            echo "### RoleGuardianChanged: 0 events" >> "$OUTPUT"
-            echo "" >> "$OUTPUT"
-        fi
-        PARTIAL=""
-
-        # TargetClosed — closed targets
-        TGTCLOSED_LOGS=$(fetch_event_logs "$addr" "$AM_TGTCLOSED_TOPIC" "$RPC_URL" 2>/dev/null || true)
-        if [ -n "$TGTCLOSED_LOGS" ]; then
-            [[ "$TGTCLOSED_LOGS" == PARTIAL_HISTORY* ]] && PARTIAL=" (partial)" && TGTCLOSED_LOGS="${TGTCLOSED_LOGS#PARTIAL_HISTORY}"
-            TGTCLOSED_COUNT=$(count_log_entries "$TGTCLOSED_LOGS")
-            {
-                echo "### TargetClosed: ${TGTCLOSED_COUNT} events${PARTIAL}"
-                echo ""
-                echo "Closed targets block all function calls regardless of role."
-                echo '```'
-                echo "$TGTCLOSED_LOGS" | head -50
-                echo '```'
-                echo ""
-            } >> "$OUTPUT"
-        else
-            echo "### TargetClosed: 0 events" >> "$OUTPUT"
-            echo "" >> "$OUTPUT"
-        fi
+        report_event_logs "$addr" "$AM_TFRU_TOPIC" "TargetFunctionRoleUpdated" head:100 "###" \
+            "Maps (target, selector) → roleId. Use to reconstruct the permission map."
+        report_event_logs "$addr" "$AM_OPSCHED_TOPIC" "OperationScheduled" head:100 "###" \
+            "Pending timelocked operations. Cross-reference with OperationExecuted to find unexecuted ops."
+        report_event_logs "$addr" "$AM_RGCHANGE_TOPIC" "RoleGuardianChanged" head:50 "###" \
+            "Guardian assignment for roles. Guardians can cancel scheduled operations."
+        report_event_logs "$addr" "$AM_TGTCLOSED_TOPIC" "TargetClosed" head:50 "###" \
+            "Closed targets block all function calls regardless of role."
     done
 fi
 
@@ -811,6 +857,7 @@ echo "" >> "$OUTPUT"
 # --- Collection Summary ---
 STATUS="complete"
 [ "$RPC_OK" -eq 0 ] && STATUS="partial (RPC unreachable)"
+[ "$RPC_OK" -eq 1 ] && [ "$LOG_INCOMPLETE_QUERIES" -gt 0 ] && STATUS="partial ($LOG_INCOMPLETE_QUERIES incomplete log queries)"
 
 {
     echo "## Collection Summary"
@@ -832,7 +879,11 @@ STATUS="complete"
     if [ "$RPC_OK" -eq 1 ]; then
         echo "| Proxy resolution | done |"
         echo "| Admin/multisig | done |"
-        echo "| Permission events | done |"
+        if [ "$LOG_INCOMPLETE_QUERIES" -gt 0 ]; then
+            echo "| Permission events | INCOMPLETE ($LOG_INCOMPLETE_QUERIES log queries partial or failed; see per-address STATUS notes) |"
+        else
+            echo "| Permission events | done |"
+        fi
         echo "| Timelock | done |"
         echo "| Deployment status | done |"
     else

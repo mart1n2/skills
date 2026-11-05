@@ -217,7 +217,7 @@ a fix, exposure state, client decision, or retest result during migration.
 - `check-compiler.sh` — pragma vs CVE database check
 - `atlas-inventory.sh` — Pass P bootstrap: seed sinks/gates/writes tables from grep over source (EVM / Solana / Move)
 - `triage-index.sh` — deterministically rebuild/check the shared candidate index from one-file-per-candidate sources, reducing multi-agent edit conflicts
-- `triage-check.sh` — portable final acceptance check for pinned scope, closure placeholders, candidate/finding separation, verification artifacts, and independent validation; `--report` additionally requires human sign-off, `--strict-hashes` additionally requires every integrity digest, and `--bootstrap` validates only a newly initialized workspace's structure
+- `triage-check.sh` — portable final acceptance check for pinned scope, closure placeholders, candidate/finding separation, verification artifacts, and independent validation; `--report` additionally requires human sign-off, `--strict-hashes` additionally requires every integrity digest, and `--lint` (alias `--bootstrap`) checks record format and cross-file consistency while the audit is still open, without the end-of-audit closure checks. Every error names the file and field and most carry a fix hint; run `--lint` right after writing a record rather than discovering format drift at the final gate
 - `retention.sh` — shared non-destructive snapshot helper used before bundled scripts replace audit-relevant current outputs
 - `load-env.sh` — env var loader (sourced by other scripts)
 - `init-workspace.sh` — bootstrap workspace + references
