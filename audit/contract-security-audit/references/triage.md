@@ -224,7 +224,14 @@ facts recoverable:
    state root, content-addressed snapshot, deployment/source revision, or another
    named pinned value);
 4. producer identity/context and evidence revision;
-5. one exact execution command or complete review procedure and expected result;
+5. one exact execution command or complete review procedure and expected result.
+   When the evidence is executable, also record `Rerun command` (one shell line
+   that reproduces it from the workspace root on a clean checkout, build step
+   included, using `$AUDIT_WORKSPACE` and `$AUDIT_SOURCE` for the workspace and
+   a checkout at the locked revision) and
+   `Rerun expected output` (a text the run must print, such as the passing test
+   line). A prose procedure such as "copy the test, then run forge" is not a
+   rerun command;
 6. actor initial state and acquisition of any required capital/capability;
 7. preconditions checked before the claimed sequence or derivation;
 8. action sequence or proof derivation;
@@ -408,6 +415,12 @@ process gap is the correct outcome. The cheapest way to close the gap is a
 fresh subagent given only the candidate file, target lock, manifest and primary
 artifacts (not the producer's conversation), as described above.
 
+**Scale the review to materiality.** Each `MATERIAL` candidate gets its own
+fresh reviewer. The `NON-MATERIAL` candidates selected for a report may go to
+one reviewer as a batch: it still starts from the written record only, still
+challenges each claim, and still writes one `triage/validation/C-NN.md` per
+candidate. Independence is unchanged; only the number of fresh contexts is.
+
 An additional agent is an eligible separate reviewer; a different model/provider
 is optional, and agent agreement is not proof. Give it the bounded claim, exact
 target and primary artifacts, known counterevidence, and output location, without
@@ -484,6 +497,15 @@ candidate, failed test, or agent disposition. The main auditor can transcribe an
 explicit human decision into the existing canonical fields; the human need not
 manually maintain multiple files. Never infer acceptance from silence.
 
+For an internal report (`design`, `pre-deploy`, `delta` and `deployed`
+profiles) the human decides by reading the report: one explicit acceptance of
+the report, with any severity changes it states, is the decision for every
+finding in it, and the main auditor transcribes it with the acceptor and date.
+The report the human accepted is the canonical one; when it lives in the
+project's repository, store a copy or its path and revision under `reports/`.
+The `external` profile keeps a recorded decision per finding, because
+severity and disclosure are released to a third party one finding at a time.
+
 Run the checker at each of the two gates:
 
 ```bash
@@ -507,7 +529,12 @@ missing/out-of-workspace/hash-mismatched evidence, incomplete recorded findings,
 cross-section evidence links, and obvious
 candidate/evidence/validator/human-decision contradictions.
 `--report` adds the human sign-off requirement; `--strict-hashes` adds the
-integrity-digest requirements. `--lint` (alias `--bootstrap`) runs the
+integrity-digest requirements. `--run-poc [--source <checkout>]` re-runs every
+recorded `Rerun command` and fails when one exits non-zero or lacks its
+expected output, which is the one check here that tests the proof rather than
+its record; run it before validation hand-off and before a report. It executes
+commands written in the workspace, so use it only on a workspace you produced
+or have read. `--lint` (alias `--bootstrap`) runs the
 record-format and cross-file consistency checks without the closure checks, so
 it can be run on an open workspace right after a candidate, manifest, validation
 or finding is written; the final mode is for the end of the audit. Script
@@ -520,8 +547,9 @@ indented list below parses as empty; `TBD`, `N/A`, `none` and `<placeholder>`
 tokens are unfilled, while comparisons such as `<=` are ordinary text; finding
 headings are level-2 `## F-NN`; verdict fields start with their keyword (`PASS`,
 `CONFIRMED`, `NOVEL`, `INDEPENDENTLY-VALIDATED`) followed by a space or
-punctuation; the candidate's target revision, deployment and build fields are
-copied byte for byte from `target-lock.md`; artifact path fields hold exactly
+punctuation; target identity is stated once, in `target-lock.md`, and a
+candidate, manifest or validation record either writes `target-lock.md` in its
+identity fields or repeats the locked value exactly; artifact path fields hold exactly
 one workspace-relative path with no annotation; `coverage.md` keeps its section
 headings verbatim and its cells numeric or substantive.
 
@@ -561,3 +589,22 @@ An audit cannot claim clean closure while a material candidate is unresolved or
 while a material obligation/surface selected by the audit has neither a
 candidate disposition nor documented no-issue evidence. Carry all such gaps into
 `coverage.md` and the final report limitations.
+
+**A `COVERED` row is a claim and carries an evidence grade.** The gates above
+guard against a false finding; this rule guards against a false "sound". State
+in the row's `Evidence / method` cell what the no-issue evidence ran against:
+`CONFIRMED-LOGIC (mock)`, `CONFIRMED-LOGIC (fork)` or `CONFIRMED-DEPLOYED`. A
+surface that depends on a third-party protocol and was exercised only against
+the project's own stand-ins is `PARTIAL`: the stand-in is unaudited code that
+may skip a step of the real protocol, so the row names the missing check (the
+stand-in compared with the protocol's source, or a fork test that asserts what
+the protocol recorded). A blanket limitation elsewhere in the file does not
+lift such a row to `COVERED`.
+
+**Record what an earlier review missed.** When a defect surfaces in a surface a
+prior audit of the same target marked `COVERED`, the next workspace records the
+surface, the prior row's evidence grade and the reason it was missed (stand-in
+fidelity, scope, lens, or evidence grade). This is the only recall signal an
+audit gets; the validation rate above measures precision alone. A cause that
+generalises becomes a line in the hunter brief or a catalog row; a fact about
+one project stays in its workspace.

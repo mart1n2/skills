@@ -127,6 +127,10 @@ These are selectable reasoning actions, not six agents or mandatory phases:
 | VERIFY | A discriminating proof question is ready: choose a test, derivation, trace or other sound method and retain its result. |
 | VALIDATE | Report preparation has started: hand selected complete producer packages to a separate reviewer under `triage.md`. |
 
+With parallel hunters, MEET also runs across their reports: no hunter sees
+another's output, so the main auditor joins their leads and sound-surface
+claims before closing coverage (`orchestration.md`, "Joining across surfaces").
+
 The routine search loop uses MAP, REGRESS, EXPAND, MEET and VERIFY. Complete
 producer evidence reaches `REPRODUCED`; leave independent validation pending and
 continue other goals. Invoke VALIDATE when preparing a report, using an additional
@@ -134,7 +138,8 @@ agent or another separate reviewer under `triage.md`, then admit passing finding
 and obtain human sign-off. Do not repeatedly interrupt discovery to request
 another model, session or reviewer.
 
-After each meaningful action, record a compact delta:
+When the work spans several steps or sessions, a compact delta after a
+meaningful action keeps it resumable:
 
 ```text
 task/goal and target used
@@ -214,7 +219,10 @@ Reuse or prune work only with a recorded reason:
 Finding a candidate only routes a coverage item into proof work; coverage closes
 after a defensible disposition or documented no-issue analysis, or is reported
 as a limitation. A guarded sink alone does not establish no-issue coverage over
-its other callers, state writers, dependencies or economic assumptions.
+its other callers, state writers, dependencies or economic assumptions. A
+closed coverage item states the grade of its no-issue evidence, and a
+third-party surface exercised only against the project's own stand-ins closes
+as `PARTIAL` (`triage.md`, "Metrics and Closure").
 
 ## 7. Resume and completion
 
@@ -223,7 +231,8 @@ useful result, blocking facts and concrete next action. On resume, read the lock
 working notes and linked canonical records before continuing. Reconcile partial
 writes and retained artifacts; never promote an incomplete run from its log
 alone. Keep potentially relevant outputs from failed attempts. Do not auto-delete
-unreferenced artifacts or `tmp/` material.
+unreferenced artifacts or `tmp/` material, except build output and caches that
+are reproducible from retained inputs.
 
 If target identity, a relied-on premise, or evidence changes, revisit every
 dependent claim and validation, and require renewed human sign-off for changed

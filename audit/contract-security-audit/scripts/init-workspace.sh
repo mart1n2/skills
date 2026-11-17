@@ -431,9 +431,10 @@ EOF
 <!-- Format rules the checker enforces (run triage-check.sh --lint early):
      every field is ONE line "- Field: value"; a bare "- Field:" with a list
      below parses as empty. TBD, N/A, none and <placeholders> count as unfilled
-     where a value is required. Target revision, Deployment / package / program
-     and Production build / configuration must match target-lock.md byte for
-     byte. Status is one of PROPOSED, HUNTING, REPRODUCED,
+     where a value is required. Target identity is stated once, in
+     target-lock.md: Target revision, Deployment / package / program and
+     Production build / configuration either say target-lock.md or repeat the
+     locked value exactly. Status is one of PROPOSED, HUNTING, REPRODUCED,
      INDEPENDENTLY-VALIDATED, HUMAN-ACCEPTED, REJECTED, DUPLICATE, OUT-OF-SCOPE,
      INCONCLUSIVE. -->
 
@@ -441,9 +442,9 @@ EOF
 - Target artifact IDs: T-NN <!-- comma-separated with no spaces, e.g. T-01,T-02; each must exist in target-lock.md -->
 - Target lock SHA-256: N/A <!-- optional integrity binding; a recorded digest must match target-lock.md -->
 - Target component: TBD
-- Target revision: TBD <!-- copy the exact "Source revision" value from target-lock.md -->
-- Deployment / package / program: TBD <!-- copy the exact "Deployment / program / package IDs" value from target-lock.md -->
-- Production build / configuration: TBD <!-- copy the exact "Production build/profile or target-identity procedure" value from target-lock.md -->
+- Target revision: target-lock.md
+- Deployment / package / program: target-lock.md
+- Production build / configuration: target-lock.md
 - Threat actor / entry: TBD
 - Required actor capabilities: TBD
 - Invariant: TBD
@@ -478,13 +479,21 @@ EOF
 > evidence packages. The method may be a PoC, trace, fork/snapshot replay, formal
 > proof, source-level proof, differential test, historical transaction, or any
 > other method that supports the exact claim.
+>
+> When the evidence is executable, `Rerun command` is one shell line that
+> reproduces it from the workspace root on a clean checkout (include the build
+> step it needs); `$AUDIT_WORKSPACE` is the workspace and
+> `$AUDIT_SOURCE` a checkout of the source at the locked revision. `Rerun
+> expected output` is a text the run must print (for example the passing test
+> line). `triage-check.sh --run-poc` runs it and fails when it does not
+> reproduce. Leave both `N/A` when the evidence is a review or proof procedure.
 
 - Candidate: C-NN
 - Target artifact IDs:
 - Target lock SHA-256: N/A <!-- optional integrity binding; verified when recorded -->
-- Target/source revision and artifact hash:
-- Production build/profile or target-identity procedure:
-- Chain, deployment/configuration, dependencies:
+- Target/source revision and artifact hash: target-lock.md
+- Production build/profile or target-identity procedure: target-lock.md
+- Chain, deployment/configuration, dependencies: target-lock.md <!-- add after it only what this evidence changes or adds, e.g. a mocked dependency -->
 - Evidence verdict: <!-- CONFIRMED-DEPLOYED / CONFIRMED-RECONSTRUCTION / CONFIRMED-LOGIC -->
 - Target fidelity: <!-- DEPLOYED / RECONSTRUCTION / LOGIC -->
 - Target fidelity basis:
@@ -499,6 +508,8 @@ EOF
 - Primary verification artifact path: <!-- one workspace-relative path to a retained non-empty file (e.g. poc/C-NN.t.sol); no annotations after it -->
 - Primary verification artifact SHA-256: N/A <!-- optional; the artifact itself must resolve -->
 - Exact command or review procedure:
+- Rerun command: N/A
+- Rerun expected output: N/A
 - Claimed impact / success criterion:
 - Primary evidence path: <!-- one workspace-relative path (e.g. evidence/C-NN-poc.log) -->
 - Primary evidence SHA-256: N/A <!-- optional; the artifact itself must resolve -->
@@ -527,7 +538,7 @@ EOF
 - Validator context / timestamp: TBD
 - Independent from producer: TBD <!-- yes only when a separate reviewer did this work; if none exists, leave the candidate REPRODUCED and this record pending -->
 - Independent verification procedure: TBD
-- Target identity / production configuration: TBD <!-- must contain the locked source revision, build/profile, chain, deployment and state anchor values -->
+- Target identity / production configuration: TBD <!-- target-lock.md once you have checked the lock yourself, plus anything your check ran differently -->
 - Independent verification result: TBD <!-- start with PASS or CONFIRMED, then the evidence; a comma or dash after the word is fine -->
 - Evidence verdict: TBD <!-- must match the verification manifest -->
 - Target fidelity verdict: TBD <!-- start with PASS or CONFIRMED; deployed/reconstruction/logic basis -->
@@ -596,6 +607,9 @@ EOF
 > Security coverage is method-defined: record the obligations/surfaces actually
 > selected, the method/evidence, and residual blind spots. `PARTIAL` or `OPEN` is
 > a limitation, never a pass. Do not invent Atlas/lens rows for methods not used.
+> A COVERED row names what its evidence ran against (mock, fork or deployed
+> state); a third-party surface exercised only on the project's own stand-ins
+> is PARTIAL, with the missing source comparison or fork check as limitation.
 > Keep the two `##` headings below verbatim; the final gate requires numeric
 > counts that reconcile to the workspace (Reviewed + Open = Expected) and does
 > not accept none, N/A or TBD in any cell.
@@ -650,6 +664,15 @@ if [ "$PROFILE" = "delta" ] && ! grep -Fq '## Reconciled Changes From the Prior 
 |---------|-----------------------------------------------|-----------------|----------|----------------------|
 | TBD | TBD | OPEN | TBD | TBD |
 | Unchanged code | none | EXCLUDED - covered by <prior report> | prior workspace report | only re-entered transitively from the delta |
+
+## Missed by the Prior Review
+
+> One row per defect found since the prior review in a surface it marked
+> COVERED, whoever found it. Delete the placeholder row when there is none.
+
+| Defect | Surface | Prior status and evidence grade | Why it was missed (stand-in fidelity / scope / lens / evidence grade) | Fed back to (brief line, catalog row, or this workspace only) |
+|--------|---------|---------------------------------|------------------------------------------------------------------------|----------------------------------------------------------------|
+| TBD | TBD | TBD | TBD | TBD |
 EOF
 fi
 

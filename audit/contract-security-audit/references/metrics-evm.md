@@ -811,7 +811,7 @@ coverage, detection-rate, frequency-ranking, or aggregate-loss claim.
 
 - **Symbolic execution:** Mythril
 - **Fuzzing:** Echidna, Medusa, Foundry `forge fuzz` / `forge invariant`
-- **Formal verification:** Certora Prover, Halmos
+- **Formal verification:** Certora Prover
 - **Compiler advisories:** Solidity GitHub Security Advisories, Vyper GitHub Security
 - **PoC simulation:** Foundry `forge test --fork-url` against mainnet RPC
 

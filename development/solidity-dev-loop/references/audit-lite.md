@@ -25,8 +25,8 @@ adds only these rules:
 ## Modes and cadence
 
 - **Design review** (before Gate 1 and before Gate 2): inputs are the original requirements, the enriched PRD and the architecture options or chosen design, never the author's reasoning. Candidates: contradictions, untestable requirements, missing failure paths, trust assumptions, and actors who gain or lose unfairly. Evidence is a numeric simulation of each actor's outcome (early and late entrants, first mover out, exiting LP, keeper, liquidator) in normal, stressed and default cases, or a prototype run on a fork. Confirmed findings become gate questions or changed options. This mode catches economic design defects that no code audit finds.
-- **PR audit:** every PR touching `src/`, deploy scripts or runbooks. Scope is the diff plus what it can affect: transitive callers, shared storage, invariants reading changed state, external assumptions it relies on.
-- **Milestone audit:** before deployment, before an external audit, after a large feature merges. Whole system, all invariants, deploy scripts and runbooks.
+- **PR audit:** one auditor, only for PRs that change value-moving code, roles, valuation or deploy scripts; a PR of comments, tests, docs or configuration gets none. Scope is the diff plus what it can affect: transitive callers, shared storage, invariants reading changed state, external assumptions it relies on.
+- **Milestone audit:** before a deployment or migration, at the final audit round before an external audit, after a large feature set merges. Whole system, all invariants, deploy scripts and runbooks, two auditors on different models. Formal verification is optional and joins only the final round (`checklists.md`).
 
 ## What to load from contract-security-audit
 
@@ -77,4 +77,4 @@ Give the violated property, not a patch: a prescribed patch anchors the implemen
 
 ## Cost
 
-PR audits stay cheap: diff and blast radius only, no atlas. Milestone audits are the expensive pass (about 340k tokens per full-scope auditor and 150k to 190k per validator on a codebase of about a dozen contracts); run them deliberately.
+PR audits stay cheap: diff and blast radius only, no atlas. Milestone audits are the expensive pass (about 340k tokens per full-scope auditor and 150k to 190k per validator on a codebase of about a dozen contracts); run them only at the milestones the delivery plan names, never per PR.

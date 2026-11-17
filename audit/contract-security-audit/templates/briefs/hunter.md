@@ -47,6 +47,9 @@ entry point:
 - Save the run log to `W/evidence/{{AREA}}-poc.log` and copy the test file to `W/poc/`.
 - Try to falsify each candidate: realistic configuration, real third-party
   behaviour, spec intent. A failed reproduction is a lead, not a finding.
+- A test that passes on the project's own stand-in of a third-party protocol
+  is evidence about the stand-in, not about the protocol. A claim about the
+  integration needs the protocol's own source or a fork behind it.
 - Do NOT modify `src/`, `script/`, docs or existing tests. Do not commit, push or
   change git state.
 
@@ -58,10 +61,13 @@ actor and privileges needed · preconditions
 mechanism (steps)
 impact, quantified from the test · reaches loss of funds/assets: yes|no
 proposed severity (Critical/High only with a path to loss or permanent lock of assets)
-test name · log path · pass/fail
+test name · log path · pass/fail · the one shell line that re-runs it
 falsification result
 dedup: vs known issues, spec-recorded accepted risks, your other candidates
 ```
 Then, separately: leads you could not prove (`INCONCLUSIVE`, with the exact
-blocker), and surfaces you checked and found sound (one line each). Be precise;
-no padding. Unproven speculation goes only in the leads list.
+blocker), and surfaces you checked and found sound (one line each, ending with
+what the check ran against: `mock`, `fork` or deployed state). A third-party
+surface you could check only against the project's stand-in goes in the leads
+list with the missing fork check. Be precise; no padding. Unproven speculation
+goes only in the leads list.

@@ -9,7 +9,6 @@ obligation; do not run every tool. Existing triage and report gates remain in fo
 | Ad hoc ABI, transactions, logs, exports | Official Etherscan CLI, if available | Same provider, quotas and data as the API |
 | Pinned storage/code, full traces, concrete replay | RPC + Cast/Foundry or equivalent | Bind actual code, dependencies and block number/hash |
 | Stateful fuzzing in a Foundry project | Existing invariant tests/handlers | Add another engine only when it helps the search |
-| Rare arithmetic/permission cases, bounded transitions | Halmos | Assumptions, modeled semantics, bounds and solver completion limit the result |
 | Longer transaction-sequence search, economic objectives | Echidna | No counterexample within a budget is not universal safety |
 
 ## Etherscan
@@ -112,18 +111,13 @@ like a right one. Before a number enters a candidate, manifest or report:
 - **Pin the block.** Every count names the block window it covers; `latest`
   drifts and makes the number irreproducible.
 
-## Halmos and Echidna
+## Echidna
 
 Adapt a property against scoped target code, preferably from an existing test.
-Neither tool is a mandatory dependency. Check installed version/help and EVM,
+Echidna is not a mandatory dependency. Check installed version/help and EVM,
 compiler and cheatcode compatibility before running; do not assume a Foundry fork
-harness transfers unchanged. Halmos also supports bounded stateful invariants.
+harness transfers unchanged.
 
-- **Halmos:** retain assumptions, mocks, initial state, loop/sequence bounds,
-  array lengths, path limits, solver version and timeouts. Check that valid inputs
-  reach the intended assertions. Make unexpected reverts/overflow explicit when
-  those are the property; assertion-only checks may ignore them. Unsupported
-  paths, exhausted bounds and solver `unknown`/timeout leave obligations open.
 - **Echidna:** retain mode, seed/workers, actors/function filters, sequence length,
   campaign/shrink budget, corpus, coverage and minimized sequences. Check that
   setup/privileged helpers cannot create fake reachability, and that filtering or
@@ -142,5 +136,4 @@ A second engine does not replace the independent reviewer.
 Reviewed 2026-09-09; verify capabilities against the selected release.
 
 - [Etherscan CLI](https://github.com/etherscan/etherscan-cli), [source API](https://docs.etherscan.io/api-reference/endpoint/getsourcecode), [skills](https://github.com/etherscan/skills)
-- [Halmos](https://github.com/a16z/halmos), [configuration](https://github.com/a16z/halmos/blob/main/src/halmos/config.py)
 - [Echidna](https://github.com/crytic/echidna), [configuration](https://secure-contracts.com/program-analysis/echidna/configuration.html), [optimization](https://secure-contracts.com/program-analysis/echidna/advanced/optimization_mode.html)

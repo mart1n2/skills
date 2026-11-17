@@ -13,6 +13,10 @@ Worktree/build: {{WORKTREE_INSTRUCTIONS}}; build with
 `--out W/tmp/out-validate-{{CANDIDATE_ID}} --cache-path W/tmp/cache-validate-{{CANDIDATE_ID}}`.
 RPC: {{RPC_AVAILABILITY}}. Read-only chain access only; no live transactions.
 
+Batch form: for the `NON-MATERIAL` candidates of one report, list every
+candidate ID above and do the job below once per candidate, with one record and
+one evidence directory each.
+
 ## Your job
 Challenge the claim, do not endorse it. Reading and agreeing is not validation.
 1. Open the primary artifacts and run or re-derive the documented procedure.
@@ -42,8 +46,8 @@ Challenge the claim, do not endorse it. Reading and agreeing is not validation.
   list of `W/triage/validation/_template.md`. The checker is strict: one line per
   field; verdict fields start with `PASS` or `CONFIRMED`; `Dedup disposition`
   starts with `NOVEL`, `UNIQUE` or `VARIANT-OF`; `Target identity / production
-  configuration` must contain the locked revision, build profile, chain,
-  deployment and state-anchor values verbatim; `Target artifact IDs` must equal
+  configuration` is `target-lock.md` once you have checked the lock yourself,
+  followed by anything your check ran differently; `Target artifact IDs` must equal
   the candidate's. Run `bash {{SKILL_DIR}}/scripts/triage-check.sh --lint W`
   before you finish and fix format errors it reports.
 - Never edit the candidate file, the manifest or any producer artifact.
