@@ -1,6 +1,6 @@
 ---
 name: solidity-dev-loop
-description: Development loop for Solidity / EVM systems that hold user funds, from requirements to deployment - spec and architecture agreed with the human at two gates, slices built test-first (unit, fuzz, invariant, fork against the real protocols, Halmos), deploy and ops, independent audit by subagents with bounded fix rounds. Use it for multi-step work on a funds-holding system: starting or extending one, designing a vault, adapter, lending pool, collateral, oracle, settlement or governance, adding a protocol integration or asset, taking over an existing or already-deployed codebase, writing deploy scripts, or fixing findings from an audit, even if the user never says "loop" or "process". Not for single Solidity or Foundry questions, and not for auditing a protocol you are not building (use contract-security-audit for that: it finds, this skill builds and fixes).
+description: Development loop for Solidity / EVM systems that hold user funds, from requirements to deployment - spec and architecture agreed with the human at two gates, slices built test-first (unit, fuzz, invariant, fork against the real protocols) with light checks per change and heavy ones (full-scope audit, deploy rehearsal, optional formal verification) only at milestones, deploy and ops, independent audit by subagents with bounded fix rounds. Use it for multi-step work on a funds-holding system: starting or extending one, designing a vault, adapter, lending pool, collateral, oracle, settlement or governance, adding a protocol integration or asset, taking over an existing or already-deployed codebase, writing deploy scripts, or fixing findings from an audit, even if the user never says "loop" or "process". Not for single Solidity or Foundry questions, and not for auditing a protocol you are not building (use contract-security-audit for that: it finds, this skill builds and fixes).
 ---
 
 # Solidity development loop
@@ -14,13 +14,29 @@ Guiding principle: **less is more.** The fewest contracts, the least state, the 
 1. **Find the entry point.** New system or new protocol integration: phase 1 in full. Small feature: the light gate; amendment to a signed spec: a delta at one gate (both in phase 1, "Scale"). Existing codebase: "Brownfield entry" first. Implementation, deployment or findings already under way: start at that phase, and say so if the request exposes a design-layer gap.
 2. In each phase, produce its artifacts and check its exit gate before moving on.
 3. A problem found late goes back to the layer it came from ("Loop back to the right layer").
-4. The project's own rules (CLAUDE.md, spec, IDs) win; this skill is the default where they are silent.
+4. The project's own rules (CLAUDE.md, spec, IDs) win; this skill is the default where they are silent. Write the rules that recur into short CLAUDE.md files, one per package: the root holds the principle, the source of truth (the TRD and its IDs), the layout and safety; each package (contracts, bots, apps) holds its exact commands and its code and test rules. A rule the agent forgot twice belongs there, not in chat.
+5. Run each check at its cadence ("Cadence"): cheap checks on every change, expensive ones only at milestones.
 
-References: `references/templates.md` (every document and table), `references/checklists.md` (adversary, valuation, liquidity, deploy, CI), `references/audit-lite.md` (independent design and code review by subagents).
+References: `references/templates.md` (every document and table), `references/checklists.md` (adversary, valuation, liquidity, deploy, checks, formal verification), `references/audit-lite.md` (independent design and code review by subagents).
 
 ## Non-negotiable invariant
 
 **User funds can never be seized or permanently locked.** Every choice is judged against this. Temporary denial of service is acceptable when a recovery path exists (a timelocked setter, migration to a successor contract, another exit route); a permanent lock is not. A liveness fix must never relax a safety bound: "the oracle is stale, so accept any output" turns a stuck withdrawal into theft.
+
+## Cadence: light per change, heavy at milestones
+
+Expensive checks repeated on every change cost more than they find: the code still moves, so each run is redone after the next fix. Run them once the scope is stable.
+
+| Per change (every PR) | At milestones only |
+|---|---|
+| Formatter and linter at the strictest level, build, contract size, the history grep over `src/` | Static analysis (Slither or Aderyn) with findings triaged |
+| Unit, fuzz and invariant tests at default runs | Fuzz and invariant at a high-run profile (for example `FOUNDRY_PROFILE=ci`) |
+| Fork tests of the third parties the change touches, run locally | The whole fork suite at its pinned blocks |
+| Diff audit-lite, one auditor, only when the change touches value-moving code, roles or deploy scripts | Full-scope audit-lite, two auditors on different models |
+| | Fork rehearsal of the full deployment or migration, read-back verifier included |
+| | Optional: formal verification of the custom core, final audit round only (`references/checklists.md`, "Formal verification") |
+
+**Milestones** are named in the delivery plan: the end of a feature set that will be deployed, each deployment or migration of a live system, and the final audit round before an external audit or mainnet. The design reviews of phase 1 run once before each gate. A change to docs, tests, comments or configuration outside `src/` and the deploy scripts gets the per-change checks without an audit.
 
 ## Brownfield entry (existing or deployed code)
 
@@ -61,14 +77,14 @@ Record every answer in the decision log and every architecture choice as an ADR 
 
 **TRD artifacts.** Requirements as testable items with IDs; role and permission matrix (no role can veto its own removal; emergency powers only reduce risk); deferred scope with triggers; reuse map (audited libraries, unmodified upstream contracts, standard governance such as `TimelockController` or `AccessManager`); formula table; valuation rule with degraded-mode matrix; per-actor economics; upgrade model; third-party dependency table; recovery paths; exit paths and exit liquidity; adversary model. Rules that shape them:
 
-- **Rounding:** every conversion rounds against the caller (ERC-4626: `deposit`/`redeem` round down, `mint`/`withdraw` round up; debts up), through library math (`Math.mulDiv` with `Rounding`, Solady `FixedPointMathLib`, `SafeCast`). A formula with no library is a Halmos and review target.
+- **Rounding:** every conversion rounds against the caller (ERC-4626: `deposit`/`redeem` round down, `mint`/`withdraw` round up; debts up), through library math (`Math.mulDiv` with `Rounding`, Solady `FixedPointMathLib`, `SafeCast`). A formula with no library is a review target, covered by fuzz and invariant tests, and a property for formal verification where the project runs it.
 - **Valuation:** choose and bound the on-chain price source by what the exit really returns, measured off-chain on a fork. Never use a same-block manipulable quote (spot reserves, a single-block swap quote) in a view that gates deposits, borrows, liquidations or share price. The valuation view never reverts.
 - **Upgrade model, chosen from the business:** immutable, immutable with timelocked setters, immutable core with replaceable modules, or proxy. Under any model no operational role can move user funds. Under a proxy the upgrade power can, so it sits behind a timelock longer than the time users need to exit, separate from operations, and the residual trust is disclosed.
 - **Dependencies are judged by the worst case for exits:** permanent lock means redesign; bounded DoS with recovery is fine. Liquidity migrating, markets dying, parameters being cut and depegs count as dependencies too.
 - **Recovery paths are features:** migration, emergency setters, write-off and impairment get the same threat model and tests as the main flow.
 - **Illiquidity is a lock:** caps come from measured exit depth across every position that shares a route or underlying.
 
-**Delivery plan** (signed at Gate 2): vertical slices, each one PR with its contract, tests and docs, riskiest first; per slice the requirement IDs, acceptance tests and definition of done; milestones (full-scope audits, fork rehearsal, testnet, mainnet), budget per milestone; CI setup and the secrets it needs; deferred scope and open risks.
+**Delivery plan** (signed at Gate 2): vertical slices, each one PR with its contract, tests and docs, riskiest first; per slice the requirement IDs, acceptance tests and definition of done; milestones and the heavy checks each one runs (full-scope audit, fork rehearsal, testnet, final audit round, mainnet), and whether the final round includes formal verification, budget per milestone; where the checks run (locally or in CI) and the secrets they need; deferred scope and open risks.
 
 ### Gate 2
 
@@ -78,42 +94,47 @@ Present TRD, architecture and plan with remaining assumptions highlighted; the a
 
 ## Phase 2: Build slices, test-first
 
-Each slice is an inner loop: write the slice's tests, see them fail, implement, get them green, run audit-lite on the PR, merge.
+Each slice is an inner loop: write the slice's tests, see them fail, implement, get them green, run the diff audit-lite when the change calls for one ("Cadence"), merge.
 
 | Layer | What | Catches |
 |---|---|---|
 | Unit | Happy path and every revert path per requirement ID, exact error selector | Logic, access control |
 | Fuzz | Amounts, decimals, prices, timestamps; `bound()` over `vm.assume()` | Boundaries, rounding, overflow |
 | Invariant | Accounting equals real positions; every holder can exit; full exit leaves no residual value at the venue; allowances return to zero; value conservation. Handlers include adversary actions (donations, dust, same-block deposits) | Bugs across call sequences |
-| Fork | Every third-party interaction against the real contracts at a pinned block, including their admin actions (pause, parameter cut, router replacement) and real keeper execution | Wrong assumptions; mocks that lie |
+| Fork | Every third-party call, encoding, permission and state relied on, against the real contracts at a pinned block, including their admin actions (pause, parameter cut, router replacement) and real keeper execution | Wrong assumptions; stand-ins that lie |
 | Regression | One test per closed finding or incident | The bug returning |
-| Symbolic | Halmos `check_` properties (with a harness that makes state symbolic) on custom core logic: rounding direction, deposit-then-redeem never gains, monotonic share price | Edges fuzzing misses |
 
-- Fork tests are mandatory for real third-party dependencies, and every fork finding also corrects the mock. In CI they need an archive RPC (fork caching on); where none is available, every security-relevant fork path also gets a test with a protocol-faithful mock.
+- **Fork tests are mandatory for every third-party dependency** and assert what the protocol recorded (its stored request, minimum outputs, owner, pending amounts), not only that the call succeeded. Coverage check: every third-party interface function that `src/` calls appears in the traces of the fork suite (`forge test --match-path "test/fork/*" -vvvv`).
+- **Stand-ins are written from the protocol's source**, read and cited in the stand-in, and never replace the fork test. A stand-in that skips one step of the protocol (a subtraction, a freeze rule) hides a wrong encoding for weeks; every fork finding also corrects the stand-in.
+- Fork tests pin a block. Locally a public RPC with a recent block is enough; CI needs an archive RPC from a secret. A project may keep contract CI manual and run the per-change checks locally before each PR; the PR then states what ran.
 - Tests assert the spec's properties, not current behaviour; a test written to "prove" a fallback works can end up asserting the bug.
 - Arithmetic only through the libraries in the formula table. Never edit vendored dependencies; wrap them.
-- **Source code states behaviour, never development history.** Comments and NatSpec in `src/` say what the code does and why, in the present tense. They never cite finding, audit or review IDs, ADR or requirement IDs, PR numbers, dates, or "previously" and "fixed". History lives in commits, PRs, ADRs, the spec, the findings index and test names. Enforce it with a CI grep over `src/` (patterns in `references/checklists.md`).
-- Before every commit: formatter, linter, static analysis (Slither or Aderyn) with findings triaged, contract size under EIP-170, full suite green.
+- **Source code states behaviour, never development history.** Comments and NatSpec in `src/` say what the code does and why, in the present tense. They never cite finding, audit or review IDs, ADR or requirement IDs, PR numbers, dates, or "previously" and "fixed". History lives in commits, PRs, ADRs, the spec, the findings index and test names. Enforce it with a grep over `src/` in the per-change checks (patterns in `references/checklists.md`).
+- Before every commit: formatter, linter with every severity failing (for example `forge lint --deny notes`), contract size under EIP-170, suite green. When a contract interface changes, regenerate the ABIs the off-chain apps consume in the same PR.
+- One PR per concern: a change and the fixes it needs to be complete go together; a separate component or migration gets its own PR.
 
-**Exit gate per slice:** its tests green, fork tests included (in CI once the archive RPC secret exists; until then run locally and flagged in the report); lint and static analysis clean or triaged; its requirement IDs covered. At each milestone: every requirement ID in the TRD has a test.
+**Exit gate per slice:** its tests green, fork tests of the touched dependencies included; lint clean; its requirement IDs covered. At each milestone: the milestone column of "Cadence" done, and every requirement ID in the TRD has a test.
 
 ## Phase 3: Deploy and operations
 
-Deploy scripts, verifiers, runbooks and bots are part of the system and in audit scope. Work through the deploy and CI checklists in `references/checklists.md`; the ones most often missed are the full read-back verifier, granting roles before the deployer renounces, and gates attached before any external deposit.
+Deploy scripts, verifiers, runbooks and bots are part of the system and in audit scope. Work through the deploy and checks checklists in `references/checklists.md`; the ones most often missed are the full read-back verifier, granting roles before the deployer renounces, and gates attached before any external deposit.
 
-**Exit gate:** a fork rehearsal of the full deployment passes the verifier; runbooks and monitoring reviewed against the adversary checklist.
+Changing a live system (replacing a module, moving positions, rotating roles) is a deployment too: its own scripts, a fork rehearsal against the live state at a recent block, the same verifier, and a runbook. Batch the calls each signer sends to one contract through its `multicall`, so a multisig signs once per contract.
+
+**Exit gate:** a fork rehearsal of the full deployment or migration passes the verifier; runbooks and monitoring reviewed against the adversary checklist.
 
 ## Phase 4: Verify, independent audit, fix
 
-1. Self-check by requirement ID, not line coverage; run Halmos on the custom core.
-2. **Independent audit by subagents** per `references/audit-lite.md`: diff scope per PR, full scope at milestones with two auditors on different models; deploy scripts and runbooks in scope.
+1. Self-check by requirement ID, not line coverage.
+2. **Independent audit by subagents** per `references/audit-lite.md`, at the cadence above: diff scope for value-moving PRs, full scope at milestones with two auditors on different models; deploy scripts and runbooks in scope.
 3. Every code finding is reproduced as a PoC before code changes, every design finding by a simulation or prototype; a third party's suggested patch is verified like any other code.
 4. **Fix minimally, or accept the risk.** When every fix adds new findings, a documented accepted risk is legitimate (the human signs it off at High or above).
 5. The PoC lands unchanged as the regression test in the fix's commit; later it may be adapted when the code it covers changes, never silently deleted, and reviewers check diffs and merges for removed tests.
 6. Independent retest of every fix; the findings index in the docs records ID, severity, status and regression test.
-7. Docs, UI and spec match the code: no claimed features that do not exist, no ADR the code does not follow.
+7. **Optional, final audit round only:** formal verification (Certora) of the custom core, when the delivery plan asks for it. It runs once the full-scope findings are fixed and retested, so the rules are written once against stable code (`references/checklists.md`, "Formal verification"). A counterexample in the code is a finding like any other: PoC, fix, regression test.
+8. Docs, UI and spec match the code: no claimed features that do not exist, no ADR the code does not follow.
 
-**Exit gate:** no open finding at Medium or above; Low and Info logged in the findings index; every fix has a regression test; accepted risks documented (High and above signed off); docs match code. Additionally, before the mainnet milestone: an external audit for anything holding real funds.
+**Exit gate:** no open finding at Medium or above; Low and Info logged in the findings index; every fix has a regression test; accepted risks documented (High and above signed off); docs match code. Additionally, before the mainnet milestone: an external audit for anything holding real funds. Where formal verification ran, its results are recorded, each unproved rule naming the tests that cover it instead.
 
 ## Loop back to the right layer
 
@@ -136,7 +157,7 @@ The loop finishes the whole task by default and stops only when it converges or 
 - **No worse fixes:** a fix that introduces a finding at least as severe as the one it closes is reverted; choose accepted risk or design change (the human decides at High or above).
 - **Disagreement:** when auditor and validator disagree, one fresh validator decides; if it is still disputed at High or above, the human decides.
 - **Unblock yourself first.** A missing dependency is work: a public RPC for local fork spikes (pin a recent block, since public nodes rarely keep archive state), the explorer's verified source, the protocol's docs or repository for ABIs and behaviour, the project's pinned way to install a tool. Keep working on everything the block does not touch, and list blockers and workarounds at the end.
-- **Stop only for the human's authority:** private or paid keys (including an archive RPC for CI), access to private repositories or accounts, spending money, deploying to any network other than a local fork (testnets included), or a business question the documents do not answer. Finish everything else first, then stop with a precise question.
+- **Stop only for the human's authority:** private or paid keys (including an archive RPC for CI, or a prover key where formal verification is planned), access to private repositories or accounts, spending money, deploying to any network other than a local fork (testnets included), or a business question the documents do not answer. Finish everything else first, then stop with a precise question.
 - **Flaky tests:** reproduce with the failing seed; one that does not reproduce is reported as flaky, not fixed.
 - **Budget:** Gate 1 preparation (state it when starting) and each milestone have a token or time budget; when spent, stop and report progress and what remains.
 

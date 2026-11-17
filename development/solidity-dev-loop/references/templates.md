@@ -97,7 +97,7 @@ Formula table:
 | shares = assets * supply / totalAssets | deposit | down | OZ `Math.mulDiv(..., Rounding.Floor)` |
 | shares = assets * supply / totalAssets | withdraw (assets given, shares burned) | up | OZ `Math.mulDiv(..., Rounding.Ceil)` |
 | debt = principal * index / 1e18 | accrue | up | Solady `mulDivUp` |
-| custom curve f(x) | pricing | ? | none: Halmos and review target |
+| custom curve f(x) | pricing | ? | none: review target, fuzz and invariant tests; a formal rule if verification is planned |
 
 Upgrade model:
 
@@ -140,9 +140,9 @@ Invariants:
 Status: proposed | signed at Gate 2 by <who> on <date>
 | # | Slice (one PR) | Requirement IDs | Acceptance tests | Depends on | Risk it retires | Done when |
 |---|---|---|---|---|---|---|
-| 1 | Vault core + first adapter | VLT-01..05, ADP-01..04 | unit, fuzz, INV-01/02, fork | - | valuation never reverts | CI green, audit-lite PR pass |
-Milestones: M1 after slice 3 (full-scope audit-lite, fork rehearsal), M2 testnet, M3 external audit, M4 mainnet
-CI: workflow, profiles, archive RPC secret, fork caching, static analysis
+| 1 | Vault core + first adapter | VLT-01..05, ADP-01..04 | unit, fuzz, INV-01/02, fork | - | valuation never reverts | checks green, diff audit-lite where due |
+Milestones (heavy checks run only here, SKILL.md "Cadence"): M1 after slice 3 (full-scope audit-lite, high-run fuzz, fork rehearsal), M2 testnet, M3 final audit round (full-scope audit-lite; formal verification: yes or no) and external audit, M4 mainnet
+Checks: run locally or in CI, test profiles, archive RPC secret, fork caching, prover key if formal verification is planned
 Budget per milestone: ...
 Deferred: ...            Open risks carried: ...
 ```
