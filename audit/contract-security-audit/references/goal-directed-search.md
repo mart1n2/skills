@@ -222,7 +222,9 @@ as a limitation. A guarded sink alone does not establish no-issue coverage over
 its other callers, state writers, dependencies or economic assumptions. A
 closed coverage item states the grade of its no-issue evidence, and a
 third-party surface exercised only against the project's own stand-ins closes
-as `PARTIAL` (`triage.md`, "Metrics and Closure").
+as `PARTIAL` (`triage.md`, "Metrics and Closure"). An operation sequenced off
+chain across several transactions closes as a flow of its own, followed end to
+end by one reviewer, not as the sum of its steps' surfaces.
 
 ## 7. Resume and completion
 

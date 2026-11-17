@@ -147,7 +147,7 @@ routes; a catalog match is precedent, never proof.
 | 9. Severity calibration (I) | provisional candidate impact assessment; final finding calibration after report-preparation review | main |
 | 10. Report preparation + sign-off | independent validation of selected candidates, record passing findings, human sign-off, then internal report under `reports/` | independent validator + human + main |
 
-Track closure throughout in `audit-workspace/{protocol}/coverage.md`; an unresolved row is a limitation, never a pass. A `COVERED` row states the grade of its evidence (`mock`, `fork` or deployed state); a third-party surface exercised only against the project's own stand-ins is `PARTIAL` (`references/triage.md`, "Metrics and Closure").
+Track closure throughout in `audit-workspace/{protocol}/coverage.md`; an unresolved row is a limitation, never a pass. A `COVERED` row states the grade of its evidence (`mock`, `fork` or deployed state); a third-party surface exercised only against the project's own stand-ins is `PARTIAL`. An operation that completes in several transactions sequenced off chain (bot, keeper, runbook) is listed there as a flow and is `COVERED` only when one reviewer followed it end to end (`references/triage.md`, "Metrics and Closure").
 
 ### Workspace Data Retention
 
@@ -291,8 +291,10 @@ same in every profile.
 
 A delta audit is not a diff-only review: every changed component's transitive
 callers, shared storage, invariants that read changed state and external
-assumptions are in scope, and unchanged surfaces are excluded only by naming
-the prior report that covered them. Spec requirement IDs (for `design`,
+assumptions are in scope, and so is every operational flow with a step in a
+changed component, whole, including the steps that a bot or runbook sequences
+and no call links. Unchanged surfaces are excluded only by naming the prior
+report that covered them. Spec requirement IDs (for `design`,
 `pre-deploy` and `delta` targets that carry a TRD or ADRs) are the intent
 source: a spec/code mismatch with a security effect is a finding, and an
 accepted risk recorded in the spec is not, unless the recorded acceptance is
@@ -498,7 +500,7 @@ When using this scaffold, produce `$WORKSPACE/orientation.md` containing:
 - **O.3 Storage glossary** — every storage variable: what does it mean, who writes it, who reads it (sink-implications).
 - **O.4 Pre-read red flags** — minute-zero structural smells (EOA-controlled upgrade, open initializer, balance-based accounting, fee-on-transfer naive math, tx.origin auth, raw ecrecover, hardhat/console imports, whole-struct mapping overwrites, `using X for Y` library bindings).
 
-Keep the artifact proportionate to the target. Before accepting a finding, the recorded evidence must still establish every semantic assumption material to that claim, whether it came from O or another method.
+Keep the artifact proportionate to the target. Whatever replaces O.2, a system of several contracts whose operations are sequenced off chain still owes `coverage.md` its list of operational flows (`references/triage.md`, "Metrics and Closure"). Before accepting a finding, the recorded evidence must still establish every semantic assumption material to that claim, whether it came from O or another method.
 
 ---
 
@@ -959,9 +961,9 @@ exploitation, follow responsible disclosure:
 
 ## Scope Boundaries
 
-- Keep off-chain components (frontend, key management, signer operations) outside the source-audit verdict unless the user explicitly expands scope.
+- Keep off-chain components (frontend, key management, signer operations) outside the source-audit verdict unless the user explicitly expands scope. The order in which a bot, keeper or runbook issues on-chain calls is not such a component: it is intent evidence for the operational flows in `coverage.md`, and the on-chain state between those calls is in scope.
 - Treat pure style, gas, and NatSpec review as ancillary; this workflow is for fund safety and protocol correctness.
-- Use differential analysis to focus a re-audit, but trace every changed component's transitive callers, storage, invariants, and sinks. A diff-only review is not sufficient when changes alter shared state or external assumptions.
+- Use differential analysis to focus a re-audit, but trace every changed component's transitive callers, storage, invariants, sinks, and the operational flows that pass through it. A diff-only review is not sufficient when changes alter shared state or external assumptions.
 - Do not claim production Aptos coverage from the Sui playbook. Aptos needs
   chain-native semantic, source/deployment-identity, and evidence-fidelity
   support before this skill can claim production coverage; no particular Atlas,

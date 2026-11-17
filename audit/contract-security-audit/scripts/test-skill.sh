@@ -1816,6 +1816,36 @@ done
 bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
 bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
 
+# Operational flows are a coverage obligation of their own: when coverage.md
+# has the table, a placeholder row, an empty table and an unknown status fail;
+# a followed flow and a reasoned NOT-APPLICABLE row pass. A workspace without
+# the section (created before it existed) keeps its verdict.
+cp "$DEMO_WS/coverage.md" "$DEMO_WS/coverage.md.flows"
+set_flow_rows() {
+    {
+        cat "$DEMO_WS/coverage.md.flows"
+        printf '\n## Operational Flows\n\n'
+        printf '| Flow (spec or runbook ID) | Steps (actor -> contract.function -> state left behind) | Status | Owner and evidence | Residual blind spots / limitation |\n'
+        printf '|---|---|---|---|---|\n'
+        [ "$#" -eq 0 ] || printf '%s\n' "$@"
+    } > "$DEMO_WS/coverage.md"
+}
+set_flow_rows '| Deleverage | keeper -> Adapter.sell -> cash on the adapter; keeper -> Vault.deallocate -> idle in the vault; anyone -> Carry.rebalance -> debt repaid | COVERED | main auditor followed all three steps; fixture review of the cash between sell and deallocate | no residual blind spot identified in this fixture |'
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+set_flow_rows '| Single-contract fixture | no operation takes more than one transaction | NOT-APPLICABLE | fixture has one contract and no bot or runbook | no residual blind spot identified in this fixture |'
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+set_flow_rows '| TBD | TBD | OPEN | TBD | TBD |'
+expect_gate_failure 'A placeholder operational-flow row unexpectedly passed.' \
+    'operational flow TBD requires its steps'
+set_flow_rows
+expect_gate_failure 'An empty operational-flows table unexpectedly passed.' \
+    'operational flows table requires at least one row'
+set_flow_rows '| Deleverage | keeper -> Adapter.sell -> cash on the adapter | SOUND | main auditor | no residual blind spot identified in this fixture |'
+expect_gate_failure 'An unknown operational-flow status unexpectedly passed.' \
+    'operational flow Deleverage has invalid status SOUND'
+mv "$DEMO_WS/coverage.md.flows" "$DEMO_WS/coverage.md"
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+
 # --run-poc tests the proof, not its record: a manifest's Rerun command must
 # exit 0 and print its recorded expected output. A manifest without one is a
 # review-procedure package and is reported, not failed.
@@ -2049,6 +2079,9 @@ fi
     grep -Fq '## Baseline' audit-workspace/prof-delta/scope.md
     grep -Fq '## Reconciled Changes From the Prior Review Baseline' audit-workspace/prof-delta/coverage.md
     grep -Fq '## Deployment Reconciliation' audit-workspace/prof-deployed/target-lock.md
+    for profile in design pre-deploy delta deployed external; do
+        test "$(grep -c '^## Operational Flows$' "audit-workspace/prof-$profile/coverage.md")" -eq 1
+    done
     grep -Fq '## Deployment Reconciliation' audit-workspace/prof-external/target-lock.md
     ! grep -Fq '## Deployment Reconciliation' audit-workspace/prof-pre-deploy/target-lock.md
     # Re-running init on an existing workspace adds nothing twice.

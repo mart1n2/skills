@@ -32,6 +32,17 @@ the seams it shares with other surfaces so cross-boundary leads are not dropped
 on both sides. Four to six hunters is the useful range; beyond that the main
 auditor's reconciliation dominates.
 
+A split by contract leaves one kind of path without an owner: an operation
+that completes in several transactions across surfaces, where no call links
+the steps because a bot, a keeper, an operator following a runbook or a user
+issues each one (a sale on one contract, a transfer through a second, a
+repayment on a third). List these flows from the spec, the runbooks and the
+bot code when you split, one row each under "Operational Flows" in
+`coverage.md`, and give each an owner: a hunter whose surface is the flow and
+whose brief names every step, or yourself. A surface hunter whose contract
+hosts a step is given the whole flow, so it knows who consumes the state its
+contract leaves behind.
+
 Isolation rules that avoid real collisions seen in practice:
 
 - Each hunter builds with its own output and cache directories
@@ -105,6 +116,18 @@ hunter's "sound" rests on a premise the other hunter's lead breaks, and whether
 two leads that were each harmless alone compose into a path. Each join that
 could reach a property becomes a task for one hunter with both facts; the rest
 are closed with the reason.
+
+A join over returned output finds only what somebody reported; a flow nobody
+followed leaves no lead to pair. Close each row of the Operational Flows table
+as well: for each pair of consecutive steps, what state the first leaves and
+where, who else can act on it before the second (another role within its
+powers, a compromised key, a bot acting out of order, anyone), and what the
+second assumes about it. Steps each found sound inside their own surface do
+not make the flow sound. In one delta audit a surface hunter proved that a
+keeper could spend unreserved cash inside one contract, a second treated the
+neighbouring vault as a black box, and the join paired only their leads; that
+the same cash was the proceeds of a risk-reducing sale, waiting for the step
+that moved it on, was pointed out by the project owner afterwards.
 
 ## Validation hand-off
 

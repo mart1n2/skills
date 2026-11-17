@@ -25,8 +25,8 @@ adds only these rules:
 ## Modes and cadence
 
 - **Design review** (before Gate 1 and before Gate 2): inputs are the original requirements, the enriched PRD and the architecture options or chosen design, never the author's reasoning. Candidates: contradictions, untestable requirements, missing failure paths, trust assumptions, and actors who gain or lose unfairly. Evidence is a numeric simulation of each actor's outcome (early and late entrants, first mover out, exiting LP, keeper, liquidator) in normal, stressed and default cases, or a prototype run on a fork. Confirmed findings become gate questions or changed options. This mode catches economic design defects that no code audit finds.
-- **PR audit:** one auditor, only for PRs that change value-moving code, roles, valuation or deploy scripts; a PR of comments, tests, docs or configuration gets none. Scope is the diff plus what it can affect: transitive callers, shared storage, invariants reading changed state, external assumptions it relies on.
-- **Milestone audit:** before a deployment or migration, at the final audit round before an external audit, after a large feature set merges. Whole system, all invariants, deploy scripts and runbooks, two auditors on different models. Formal verification is optional and joins only the final round (`checklists.md`).
+- **PR audit:** one auditor, only for PRs that change value-moving code, roles, valuation or deploy scripts; a PR of comments, tests, docs or configuration gets none. Scope is the diff plus what it can affect: transitive callers, shared storage, invariants reading changed state, external assumptions it relies on, and every operational flow (a sequence a bot, keeper or runbook issues) with a step in the diff, followed end to end.
+- **Milestone audit:** before a deployment or migration, at the final audit round before an external audit, after a large feature set merges. Whole system, all invariants, deploy scripts and runbooks, every operational flow from the spec and runbooks followed end to end by one auditor, two auditors on different models. Formal verification is optional and joins only the final round (`checklists.md`).
 
 ## What to load from contract-security-audit
 
@@ -41,7 +41,7 @@ Skipped: target lock and artifact IDs (the git commit binds), digests, source fe
 
 ## Workflow
 
-1. **Goals.** Start from the invariants and requirement IDs and search backward for what breaks each; search forward from real actors (anyone, depositor, keeper, privileged roles, third-party admins, a donor of dust). Walk the adversary checklist. Treat every runbook and bot step as code: which values it reads, and what a griefer can make it revert on.
+1. **Goals.** Start from the invariants and requirement IDs and search backward for what breaks each; search forward from real actors (anyone, depositor, keeper, privileged roles, third-party admins, a donor of dust). Walk the adversary checklist. Treat every runbook and bot step as code: which values it reads, what a griefer can make it revert on, and who else can act on the state one step leaves before the next step runs.
 2. **Candidates.** One file per candidate in the audit worktree's `audit-workspace/<scope>/candidates/C-NN.md`: commit, actor and preconditions, mechanism, violated invariant or requirement ID, claimed impact in assets, falsification plan, dedup key.
 3. **PoC.** A Foundry test from the real entry point, a fork test when a third party is involved (public RPC is fine locally), named `test_Audit_C_NN_<what>`. It **asserts the violated property**, so it fails on the audited code, and has a negative control (the same flow without the attack) that passes. Assert the fund effect, not just a revert.
 4. **Falsify**, then **validate**: realistic configuration, real third-party behaviour, spec intent. A failed reproduction is `INCONCLUSIVE`; only evidence that disproves a precondition or the impact makes it `REJECTED`.

@@ -906,6 +906,7 @@ Checklist:
 5. **Initialization / wiring order.** Multi-contract deploy where there's a window in which A points at a zero/uninitialized B, or B's address in A is set after A goes live → front-runnable wiring (links to A.8).
 6. **Asymmetric pause / upgrade.** Pausing A but not B (or upgrading one of a coupled pair) leaves an exploitable path open or a storage/ABI assumption broken across the pair.
 7. **Shared-token custody.** Multiple contracts hold/move the same token and one uses `balanceOf(address(this))` for accounting. Determine whether a sibling transfer or donation is intentionally recognized; if not, it can desynchronize price, claims, or an internal ledger (links to B.3).
+8. **State parked between off-chain-sequenced steps.** An operation completes in several transactions across contracts (sell on A, move through B, repay on C) and nothing on chain binds the steps: a bot, keeper or runbook issues each. Between two steps the value or flag sits on A as ordinary state. Ask who else can act on it in the gap (another role within its normal powers, a compromised key, a bot out of order, anyone) and what the next step assumes. The steps are in the spec, the runbooks and the bot code, not in the call graph, so a review that follows calls never meets this seam.
 
 *Validation:* vault/strategy debt-desync drains (recurring); privilege-laundering via a contract with a public forwarder; wiring/init front-runs (Parity/Nomad family at the cross-contract layer).
 

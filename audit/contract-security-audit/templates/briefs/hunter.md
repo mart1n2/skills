@@ -24,6 +24,9 @@ acceptance is wrong about the mechanism or its bound.
 ## Your surface
 Files: {{FILES_IN_SCOPE}}. Seams shared with other surfaces (check both sides of
 each): {{SEAMS}}.
+Operational flows through this surface: {{FLOWS_WITH_STEPS_OR_NONE}}  <!-- per flow, every step in order, including steps outside this surface: actor -> contract.function -> state it leaves behind. When the surface is a flow, Files lists every contract its steps touch -->
+Between consecutive steps of a flow: who else can act on the state the earlier
+step leaves, and what the later step assumes about it.
 
 Invariants and requirement IDs to attack (non-exhaustive): {{INVARIANTS_AND_IDS}}.
 Search backward from each violated property to what must be true for it to

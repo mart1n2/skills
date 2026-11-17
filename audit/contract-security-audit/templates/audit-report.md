@@ -232,6 +232,14 @@ Choose coverage obligations/surfaces appropriate to the methods actually used. A
 |-------------------------------|--------|-------------------|------------------------------------|
 | {method-defined property, surface, state region, trace set, proof obligation, or other unit} | {COVERED / PARTIAL / OPEN / EXCLUDED / NOT-APPLICABLE} | {claim-bound evidence and method} | {remaining uncertainty, or why none remains} |
 
+### Operational Flows
+
+Operations that complete in several transactions sequenced off chain. Omit the table only when `coverage.md` records that the target has none.
+
+| Flow (spec or runbook ID) | Steps (actor -> contract.function -> state left behind) | Status | Owner and evidence | Residual blind spots / limitation |
+|---------------------------|----------------------------------------------------------|--------|--------------------|------------------------------------|
+| {flow} | {steps in order} | {COVERED / PARTIAL / OPEN / EXCLUDED / NOT-APPLICABLE} | {who followed it end to end, and the evidence} | {remaining uncertainty, or why none remains} |
+
 ### Candidate Limitations
 
 | Candidate | Severity / materiality | Status | Blocker / open proof obligation | Required next step | Report verdict |

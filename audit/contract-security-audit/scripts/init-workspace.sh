@@ -636,6 +636,21 @@ EOF
 |-------------------------------|--------|-------------------|------------------------------------|
 | TBD | OPEN | TBD | TBD |
 
+## Operational Flows
+
+> One row per operation that completes in several transactions which no call
+> links, because a bot, a keeper, an operator following a runbook or a user
+> issues each step (rebalance, deleverage, settlement, migration, write-off,
+> emergency exit). Sources: the spec, the runbooks, the bot code. COVERED means
+> one reviewer followed the flow end to end and examined, between each pair of
+> consecutive steps, who else can act on the state left there and what the next
+> step assumes. Steps each checked only inside their own surface: PARTIAL. A
+> target with no such operation keeps one NOT-APPLICABLE row with the reason.
+
+| Flow (spec or runbook ID) | Steps (actor -> contract.function -> state left behind) | Status | Owner and evidence | Residual blind spots / limitation |
+|---------------------------|----------------------------------------------------------|--------|--------------------|------------------------------------|
+| TBD | TBD | OPEN | TBD | TBD |
+
 ## Candidate Limitations
 
 > Every INCONCLUSIVE candidate has exactly one row. Candidates classified

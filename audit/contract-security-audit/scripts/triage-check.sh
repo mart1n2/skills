@@ -903,6 +903,54 @@ $target_path
     ' "$WORKSPACE/coverage.md"; then
         fail "$WORKSPACE/coverage.md: method-defined coverage validation failed"
     fi
+    # Operational flows: operations sequenced off chain across several
+    # transactions. The table is validated when the workspace has it (every
+    # workspace created since the section was added does); the checker cannot
+    # know whether the list is complete, only that it was filled in.
+    if grep -Eq '^##[[:space:]]+Operational Flows[[:space:]]*$' "$WORKSPACE/coverage.md"; then
+        if ! awk -F '|' '
+            function trim(value) {
+                sub(/^[ \t]+/, "", value)
+                sub(/[ \t]+$/, "", value)
+                return value
+            }
+            function invalid(value, lower) {
+                lower = tolower(trim(value))
+                return lower == "" || lower == "?" ||
+                       lower ~ /^(tbd|unknown)([[:space:]:-]|$)/ ||
+                       lower ~ /^(n\/a|none)([[:space:]:-]|$)/ ||
+                       lower ~ /<[a-z][^<>]*>/
+            }
+            /^##[[:space:]]+Operational Flows[[:space:]]*$/ { in_flows = 1; next }
+            in_flows && /^##[[:space:]]/ { in_flows = 0 }
+            in_flows && /^\|/ {
+                flow = trim($2)
+                steps = trim($3)
+                status = trim($4)
+                owner = trim($5)
+                residual = trim($6)
+                if (flow ~ /^Flow([[:space:]]|$)/ || flow ~ /^-+$/) next
+                rows++
+                if (status !~ /^(COVERED|PARTIAL|OPEN|EXCLUDED|NOT-APPLICABLE)$/) {
+                    printf "operational flow %s has invalid status %s\n", flow, status > "/dev/stderr"
+                    errors++
+                }
+                if (invalid(flow) || invalid(steps) || invalid(owner) || invalid(residual)) {
+                    printf "operational flow %s requires its steps, an owner with evidence and residual-blind-spot text; hint: list each step as actor -> contract.function -> state left behind; for a target with no multi-step operation keep one NOT-APPLICABLE row and give the reason in every cell (none, N/A and TBD are not accepted)\n", flow > "/dev/stderr"
+                    errors++
+                }
+            }
+            END {
+                if (rows == 0) {
+                    print "operational flows table requires at least one row; hint: one row per operation a bot, keeper, runbook or user completes in several transactions, or one NOT-APPLICABLE row with the reason" > "/dev/stderr"
+                    errors++
+                }
+                if (errors) exit 1
+            }
+        ' "$WORKSPACE/coverage.md"; then
+            fail "$WORKSPACE/coverage.md: operational flows validation failed"
+        fi
+    fi
     # The bundled atlas is one discovery/coverage method, not a mandatory way to
     # find vulnerabilities. If delta.md is used, validate its closure; otherwise
     # coverage.md must identify the alternative method and residual blind spots.
