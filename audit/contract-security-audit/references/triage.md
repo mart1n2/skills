@@ -601,6 +601,20 @@ stand-in compared with the protocol's source, or a fork test that asserts what
 the protocol recorded). A blanket limitation elsewhere in the file does not
 lift such a row to `COVERED`.
 
+**An operation that spans steps is a coverage obligation of its own.** Where
+an operation completes in several transactions that no call links, because a
+bot, a keeper, an operator following a runbook or a user issues each one,
+`coverage.md` lists it under "Operational Flows": the steps, who issues each,
+and the state each leaves behind. The spec, the runbooks and the bot code are
+the sources; the order of calls they prescribe is intent evidence even when
+the off-chain component itself is out of scope. A flow row is `COVERED` only
+when one reviewer followed it end to end and examined, between each pair of
+consecutive steps, who else can act on the state left there and what the next
+step assumes about it. Steps each found sound inside their own surface make
+the row `PARTIAL`. The checker cannot know whether the list is complete; it
+rejects an empty or placeholder table, and a target with no such operation
+says so in one `NOT-APPLICABLE` row with the reason.
+
 **Record what an earlier review missed.** When a defect surfaces in a surface a
 prior audit of the same target marked `COVERED`, the next workspace records the
 surface, the prior row's evidence grade and the reason it was missed (stand-in
