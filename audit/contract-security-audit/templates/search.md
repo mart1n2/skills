@@ -1,42 +1,41 @@
-# Audit Search Blackboard
+# Audit Search Record
 
-Working agenda, not a second candidate registry. Use equivalent existing notes
-when available. Stable IDs support links across actions and restarts; task state
-below describes work, not candidate status or proof strength. Add blocks only as
-needed, and keep long evidence in retained files.
+Working notes, not a second candidate registry. Use equivalent existing notes
+when available; keep long evidence in retained files and link it. The three
+sections below are what a resumed session needs.
 
-## Target and goals
+Target: link `scope.md` / `target-lock.md`; revision and relevant pinned state.
 
-- Target: link `scope.md` / `target-lock.md`; revision and relevant pinned state.
-- G-01: property / affected party / observable violation or refutation / target IDs.
+## Closed
 
-## Tasks
+- Surface or question: what was established, with the evidence path and what
+  it ran against (mock, fork or deployed state). Closed does not mean safe:
+  link the `coverage.md` row or `C-NN` that carries the conclusion.
 
-### Q-01 — Short open question
+## Open obligations
 
-- Goal / kind: G-01 / LEAD, EXPLOIT, PROOF or COVERAGE
-- Work state: READY, ACTIVE, BLOCKED, PARKED or DONE
-- Inputs / requires: target revision, artifact locators, premise/task IDs
+- Property or question, affected party, the exact unresolved fact, and the
+  check that would settle it. Mark blocked or parked items with the reason and
+  the trigger that reopens them.
+
+## Next action
+
+- The one concrete next step, the premises to recheck if the target changed,
+  and any question only the human can answer (intent or risk judgment).
+
+## Optional: a task block for a long-running lead
+
+### Q-01: short open question
+
+- Kind: LEAD, EXPLOIT, PROOF or COVERAGE
 - Observation: what the source, trace or test actually shows
-- Interpretation / alternatives: suspected implication, strongest benign explanation; preserve actor, instance, mapping key, timing and AND/OR conditions
-- Next check / stop condition: discriminating action, expected distinction, effort bound
-- Result / evidence: result or unresolved fact; retained artifact and canonical candidate/coverage link
-- Resume trigger / human question: only if blocked, parked, or a specific human decision is needed; otherwise omit
+- Interpretation / alternatives: suspected implication and the strongest benign
+  explanation; keep actor, instance, mapping key, timing and AND/OR conditions
+- Next check / stop condition: discriminating action and effort bound
+- Result / evidence: result or unresolved fact; retained artifact; `C-NN` or
+  coverage link
 
-Repeat for actual work. Default to one ACTIVE task per worker. A DONE task may
-have produced a candidate or a documented limitation; DONE does not mean safe.
-On promotion link `C-NN`, leaving its status only in the canonical candidate file.
-Keep parked work with its reason; do not delete evidence or reopen without cause.
-
-## Next action and human review
-
-- Resume: Q-ID and concrete next action; target/premises to recheck if changed.
-- Human review: links to final findings and selected Q-IDs requiring judgment,
-  not a duplicate anomaly list. No ordinary step needs human approval.
-
-Use the lead policy in `references/goal-directed-search.md` in the skill for
-retention and escalation. Before closure reconcile every material open or parked
-question with `coverage.md`, including leads not mature enough for a candidate.
-An empty queue is not coverage. Preserve relied-on conclusions before replacing
-them, with a dated correction and link to the new evidence. These notes are not
-mechanically validated by `triage-check.sh`; the main auditor checks them.
+Use the lead policy in `references/goal-directed-search.md` for retention and
+escalation. Before closure reconcile every open or parked item with
+`coverage.md`, including leads not mature enough for a candidate. These notes
+are not checked by `triage-check.sh`; the main auditor checks them.

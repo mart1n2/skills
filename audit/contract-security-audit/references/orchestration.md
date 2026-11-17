@@ -36,7 +36,9 @@ Isolation rules that avoid real collisions seen in practice:
 
 - Each hunter builds with its own output and cache directories
   (`forge test --out <ws>/tmp/out-<area> --cache-path <ws>/tmp/cache-<area>`)
-  so parallel builds do not clobber each other.
+  so parallel builds do not clobber each other. These directories are build
+  output, not evidence: delete them when the run ends and keep the logs, tests
+  and traces.
 - Hunters write only under the workspace (`poc/`, `evidence/<area>-*.log`) and a
   test file of their own (`test/audit/<Area>Audit.t.sol`); never under `src/`,
   `script/`, docs or existing tests, and never git state.
@@ -56,13 +58,16 @@ actor and privileges needed · preconditions
 mechanism (steps)
 impact, quantified from the test · reaches loss of funds/assets: yes|no
 proposed severity (asset-loss gate applied)
-test name · log path · pass/fail
+test name · log path · pass/fail · the one shell line that re-runs it
 falsification result (the negative control and what it showed)
 dedup: vs known issues F-NN, spec-recorded accepted risks, other candidates
 ```
 
 Then, separately: leads that could not be proved (`INCONCLUSIVE`, with the
-blocker), and surfaces checked and found sound, one line each. Unproven
+blocker), and surfaces checked and found sound, one line each with what the
+check ran against (`mock`, `fork` or deployed state). A third-party surface
+checked only against the project's own stand-in is reported as a lead with the
+missing fork check, not as sound. Unproven
 speculation goes only in the leads list. A candidate without a test that
 asserts the violated property is a lead.
 
@@ -89,11 +94,25 @@ Then register each candidate under the normal schema, allocate its `C-NN`
 yourself, and rebuild the index with `triage-index.sh`. Hunters propose IDs
 only when the brief pre-allocated a range.
 
+## Joining across surfaces
+
+Hunters never see each other's output, so a defect that needs one fact from
+each of two surfaces is found by nobody unless the main auditor joins them.
+Before closing coverage, lay the returned leads and sound-surface claims side
+by side and pair those that share a state variable, an asset, a role, a
+third party or a seam named in the briefs. For each pair ask whether one
+hunter's "sound" rests on a premise the other hunter's lead breaks, and whether
+two leads that were each harmless alone compose into a path. Each join that
+could reach a property becomes a task for one hunter with both facts; the rest
+are closed with the reason.
+
 ## Validation hand-off
 
 Report preparation is the trigger (`goal-directed-search.md` § 4, VALIDATE).
-For each `REPRODUCED` candidate selected for the report, start a fresh validator
-with the validator brief. It writes `triage/validation/C-NN.md` and its own
+For each `REPRODUCED` `MATERIAL` candidate selected for the report, start a
+fresh validator with the validator brief; give the `NON-MATERIAL` ones to one
+validator as a batch, one record per candidate (`triage.md`, "Independent
+Validation Protocol"). It writes `triage/validation/C-NN.md` and its own
 evidence under `evidence/validation/C-NN/`; it never edits producer artifacts.
 It may rerun the producer's test, write its own, inspect pinned on-chain state,
 or derive a proof; it records which. A validator that changes the claim has
@@ -111,7 +130,7 @@ the other's candidates. In one measured run on a codebase with seven known
 issues, each hunter alone found three or four, the union found five, and each
 found one issue the project only discovered later. Budget: on the order of
 340k tokens per full-scope hunter and 150–190k per validator for a dozen
-contracts. PR-sized audits use one hunter on the diff plus its blast radius.
+contracts, which is why only material candidates get a validator each. PR-sized audits use one hunter on the diff plus its blast radius.
 
 ## Retest after fixes
 

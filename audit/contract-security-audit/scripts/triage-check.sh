@@ -17,6 +17,18 @@
 #                    dispositions, identity reconciliation, coverage counts).
 #                    Run it as soon as a record is written, before the final
 #                    gate. --bootstrap is the same mode on an empty workspace.
+#   --run-poc        additionally re-run every 'Rerun command' recorded in a
+#                    verification manifest and compare the result with the
+#                    claim: exit status 0 and, when recorded, the 'Rerun
+#                    expected output' text. Commands run from the workspace
+#                    root with AUDIT_WORKSPACE and AUDIT_SOURCE exported
+#                    (--source <dir>, default <workspace>/contracts). Logs go
+#                    to tmp/run-poc/<UTC run id>/. This executes commands
+#                    written in the workspace: use it only on a workspace you
+#                    produced or have read.
+#
+# Target identity is stated once, in target-lock.md. A candidate, manifest or
+# validation record may repeat a locked value or refer to 'target-lock.md'.
 #
 # Every error names the file and field, and most carry a "hint:" with the
 # accepted form, so a record can be fixed without reading this script.
@@ -26,12 +38,16 @@ set -euo pipefail
 MODE="final"
 REQUIRE_SIGNOFF=0
 STRICT_HASHES=0
-USAGE='Usage: triage-check.sh [--lint|--bootstrap] [--report] [--strict-hashes] <audit-workspace/protocol>'
+RUN_POC=0
+POC_SOURCE=""
+USAGE='Usage: triage-check.sh [--lint|--bootstrap] [--report] [--strict-hashes] [--run-poc [--source <dir>]] <audit-workspace/protocol>'
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --bootstrap|--lint) MODE="lint"; shift ;;
         --report) REQUIRE_SIGNOFF=1; shift ;;
         --strict-hashes) STRICT_HASHES=1; shift ;;
+        --run-poc) RUN_POC=1; shift ;;
+        --source) POC_SOURCE="${2:?--source needs a directory}"; shift 2 ;;
         --) shift; break ;;
         -*) printf 'ERROR: unknown option %s\n' "$1" >&2
             printf '%s\n' "$USAGE" >&2
@@ -52,7 +68,17 @@ fail() {
     failures=$((failures + 1))
 }
 
+# Identity lives in target-lock.md. A record satisfies an identity check by
+# repeating the locked value or by referring to the lock.
+refers_to_lock() {
+    case "$1" in
+        *target-lock.md*) return 0 ;;
+    esac
+    return 1
+}
+
 # Common fix hints, kept in one place so messages stay consistent.
+HINT_LOCK_REF="hint: write 'target-lock.md' to refer to the locked identity, or repeat the locked value exactly"
 HINT_ONE_LINE="hint: write the value on the same line as '- Field:'; a bare header with an indented list below parses as empty, and an angle-bracket placeholder such as <value> counts as unfilled"
 HINT_PATH="hint: one workspace-relative path to a retained non-empty file, with no annotations after it"
 HINT_DEDUP="hint: three non-empty segments separated by '|', for example missing-check|asset-conservation|withdrawal"
@@ -1401,14 +1427,14 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
             candidate_revision="$(field_value "$candidate_file" "Target revision")"
             candidate_deployment="$(field_value "$candidate_file" "Deployment / package / program")"
             candidate_build="$(field_value "$candidate_file" "Production build / configuration")"
-            if [ "$candidate_revision" != "$TARGET_SOURCE_REVISION" ]; then
-                fail "$candidate_file: Target revision must exactly match target-lock.md"
+            if [ "$candidate_revision" != "$TARGET_SOURCE_REVISION" ] && ! refers_to_lock "$candidate_revision"; then
+                fail "$candidate_file: Target revision must exactly match target-lock.md; $HINT_LOCK_REF"
             fi
-            if [ "$candidate_deployment" != "$TARGET_DEPLOYMENT" ]; then
-                fail "$candidate_file: Deployment / package / program must exactly match target-lock.md"
+            if [ "$candidate_deployment" != "$TARGET_DEPLOYMENT" ] && ! refers_to_lock "$candidate_deployment"; then
+                fail "$candidate_file: Deployment / package / program must exactly match target-lock.md; $HINT_LOCK_REF"
             fi
-            if [ "$candidate_build" != "$TARGET_BUILD" ]; then
-                fail "$candidate_file: Production build / configuration must exactly match target-lock.md"
+            if [ "$candidate_build" != "$TARGET_BUILD" ] && ! refers_to_lock "$candidate_build"; then
+                fail "$candidate_file: Production build / configuration must exactly match target-lock.md; $HINT_LOCK_REF"
             fi
         fi
 
@@ -1598,19 +1624,21 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                         manifest_build="$(field_value "$reproducer" "Production build/profile or target-identity procedure")"
                         manifest_chain_config="$(field_value "$reproducer" "Chain, deployment/configuration, dependencies")"
                         case "$manifest_target_source" in
-                            *"$TARGET_SOURCE_REVISION"*) ;;
-                            *) fail "$reproducer: target/source identity does not contain the locked source revision" ;;
+                            *"$TARGET_SOURCE_REVISION"*|*target-lock.md*) ;;
+                            *) fail "$reproducer: target/source identity does not contain the locked source revision; $HINT_LOCK_REF" ;;
                         esac
                         case "$manifest_build" in
-                            *"$TARGET_BUILD"*) ;;
-                            *) fail "$reproducer: production build identity does not contain the locked build/profile" ;;
+                            *"$TARGET_BUILD"*|*target-lock.md*) ;;
+                            *) fail "$reproducer: production build identity does not contain the locked build/profile; $HINT_LOCK_REF" ;;
                         esac
-                        for locked_value in "$TARGET_CHAIN" "$TARGET_DEPLOYMENT" "$TARGET_CONFIGURATION"; do
-                            case "$manifest_chain_config" in
-                                *"$locked_value"*) ;;
-                                *) fail "$reproducer: chain/deployment/configuration does not contain locked value '$locked_value'" ;;
-                            esac
-                        done
+                        if ! refers_to_lock "$manifest_chain_config"; then
+                            for locked_value in "$TARGET_CHAIN" "$TARGET_DEPLOYMENT" "$TARGET_CONFIGURATION"; do
+                                case "$manifest_chain_config" in
+                                    *"$locked_value"*) ;;
+                                    *) fail "$reproducer: chain/deployment/configuration does not contain locked value '$locked_value'; $HINT_LOCK_REF" ;;
+                                esac
+                            done
+                        fi
                     fi
                     manifest_verdict="$(field_value "$reproducer" "Evidence verdict")"
                     target_fidelity="$(field_value "$reproducer" "Target fidelity")"
@@ -1623,8 +1651,8 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                     if [ "$MODE" = "final" ] && [ "$manifest_verdict" = "CONFIRMED-DEPLOYED" ] && \
                        ! is_unset "$TARGET_DEPLOYED_HASH" && ! is_non_substantive "$TARGET_DEPLOYED_HASH"; then
                         case "$manifest_target_source" in
-                            *"$TARGET_DEPLOYED_HASH"*) ;;
-                            *) fail "$reproducer: deployed target/source identity does not contain the locked deployed hash" ;;
+                            *"$TARGET_DEPLOYED_HASH"*|*target-lock.md*) ;;
+                            *) fail "$reproducer: deployed target/source identity does not contain the locked deployed hash; $HINT_LOCK_REF" ;;
                         esac
                     fi
                     case "$state_anchor_kind" in
@@ -1741,12 +1769,14 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                             fail "$validation: Target artifact IDs do not match $candidate_id"
                         fi
                         validation_target_identity="$(field_value "$validation" "Target identity / production configuration")"
-                        for locked_value in "$TARGET_SOURCE_REVISION" "$TARGET_BUILD" "$TARGET_CHAIN" "$TARGET_DEPLOYMENT" "$TARGET_CONFIGURATION"; do
-                            case "$validation_target_identity" in
-                                *"$locked_value"*) ;;
-                                *) fail "$validation: target identity/configuration does not contain locked value '$locked_value'" ;;
-                            esac
-                        done
+                        if ! refers_to_lock "$validation_target_identity"; then
+                            for locked_value in "$TARGET_SOURCE_REVISION" "$TARGET_BUILD" "$TARGET_CHAIN" "$TARGET_DEPLOYMENT" "$TARGET_CONFIGURATION"; do
+                                case "$validation_target_identity" in
+                                    *"$locked_value"*) ;;
+                                    *) fail "$validation: target identity/configuration does not contain locked value '$locked_value'; $HINT_LOCK_REF" ;;
+                                esac
+                            done
+                        fi
                     fi
                     verify_workspace_artifact "$validation" "Validation evidence path" "Validation evidence SHA-256"
 
@@ -1754,8 +1784,8 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
                     if [ "$MODE" = "final" ] && [ "$validation_evidence_verdict" = "CONFIRMED-DEPLOYED" ] && \
                        ! is_unset "$TARGET_DEPLOYED_HASH" && ! is_non_substantive "$TARGET_DEPLOYED_HASH"; then
                         case "$validation_target_identity" in
-                            *"$TARGET_DEPLOYED_HASH"*) ;;
-                            *) fail "$validation: deployed target identity/configuration does not contain the locked deployed hash" ;;
+                            *"$TARGET_DEPLOYED_HASH"*|*target-lock.md*) ;;
+                            *) fail "$validation: deployed target identity/configuration does not contain the locked deployed hash; $HINT_LOCK_REF" ;;
                         esac
                     fi
                     manifest_path="$WORKSPACE/triage/reproducers/$candidate_id.md"
@@ -1834,6 +1864,80 @@ if [ -d "$WORKSPACE/triage/candidates" ]; then
             ;;
     esac
     done < <(find "$WORKSPACE/triage/candidates" \( -type f -o -type l \) -name 'C-*.md' -print | LC_ALL=C sort)
+fi
+
+# ---------------------------------------------------------------------------
+# --run-poc: the proof itself, not its paperwork. Re-run each manifest's
+# 'Rerun command' and compare the result with what the record claims.
+# ---------------------------------------------------------------------------
+# A shell command may legitimately contain '<', '>' or '?', so the rerun
+# fields use their own emptiness test rather than is_unset.
+poc_field_unset() {
+    case "$1" in
+        ""|N/A*|n/a*|TBD*|tbd*|none*|NONE*) return 0 ;;
+    esac
+    return 1
+}
+poc_ran=0
+poc_passed=0
+poc_skipped=0
+if [ "$RUN_POC" -eq 1 ] && [ -d "$WORKSPACE/triage/reproducers" ]; then
+    WORKSPACE_ABS="$(cd "$WORKSPACE" && pwd -P)"
+    if [ -z "$POC_SOURCE" ]; then
+        POC_SOURCE="$WORKSPACE_ABS/contracts"
+    fi
+    if [ ! -d "$POC_SOURCE" ]; then
+        fail "--run-poc: source directory '$POC_SOURCE' does not exist; pass --source <checkout at the locked revision>"
+    else
+        POC_SOURCE="$(cd "$POC_SOURCE" && pwd -P)"
+        POC_TIMEOUT="${AUDIT_POC_TIMEOUT:-1800}"
+        poc_timeout_bin=""
+        if command -v timeout >/dev/null 2>&1; then
+            poc_timeout_bin="timeout"
+        elif command -v gtimeout >/dev/null 2>&1; then
+            poc_timeout_bin="gtimeout"
+        fi
+        poc_run_dir="$WORKSPACE_ABS/tmp/run-poc/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+        mkdir -p "$poc_run_dir"
+        while IFS= read -r poc_manifest; do
+            poc_id="$(basename "$poc_manifest" .md)"
+            poc_candidate="$WORKSPACE/triage/candidates/$poc_id.md"
+            [ -f "$poc_candidate" ] || continue
+            case "$(field_value "$poc_candidate" "Status")" in
+                REPRODUCED|INDEPENDENTLY-VALIDATED|HUMAN-ACCEPTED) ;;
+                *) continue ;;
+            esac
+            poc_command="$(field_value "$poc_manifest" "Rerun command")"
+            poc_expected="$(field_value "$poc_manifest" "Rerun expected output")"
+            if poc_field_unset "$poc_command"; then
+                printf 'NOTE: %s has no Rerun command; its evidence is a review procedure and was not re-run.\n' "$poc_id" >&2
+                poc_skipped=$((poc_skipped + 1))
+                continue
+            fi
+            poc_log="$poc_run_dir/$poc_id.log"
+            printf 'RUN:  %s: %s\n' "$poc_id" "$poc_command" >&2
+            poc_ran=$((poc_ran + 1))
+            poc_status=0
+            if [ -n "$poc_timeout_bin" ]; then
+                (cd "$WORKSPACE_ABS" && AUDIT_WORKSPACE="$WORKSPACE_ABS" AUDIT_SOURCE="$POC_SOURCE" \
+                    "$poc_timeout_bin" "$POC_TIMEOUT" bash -c "$poc_command") >"$poc_log" 2>&1 </dev/null || poc_status=$?
+            else
+                (cd "$WORKSPACE_ABS" && AUDIT_WORKSPACE="$WORKSPACE_ABS" AUDIT_SOURCE="$POC_SOURCE" \
+                    bash -c "$poc_command") >"$poc_log" 2>&1 </dev/null || poc_status=$?
+            fi
+            if [ "$poc_status" -ne 0 ]; then
+                fail "$poc_manifest: Rerun command exited $poc_status; the recorded proof does not reproduce (log: tmp/run-poc/$(basename "$poc_run_dir")/$poc_id.log)"
+                continue
+            fi
+            if ! poc_field_unset "$poc_expected" && ! grep -Fq -e "$poc_expected" "$poc_log"; then
+                fail "$poc_manifest: Rerun command succeeded but its output lacks the recorded 'Rerun expected output' (log: tmp/run-poc/$(basename "$poc_run_dir")/$poc_id.log)"
+                continue
+            fi
+            poc_passed=$((poc_passed + 1))
+        done < <(find "$WORKSPACE/triage/reproducers" -type f -name 'C-*.md' -print | LC_ALL=C sort)
+        printf 'PoC re-run: %s run, %s reproduced, %s without a Rerun command (logs: %s).\n' \
+            "$poc_ran" "$poc_passed" "$poc_skipped" "tmp/run-poc/$(basename "$poc_run_dir")" >&2
+    fi
 fi
 
 duplicate_accepted_key="$(awk -F '\t' '++seen[$1] == 2 { print $1; exit }' "$ACCEPTED_KEYS")"

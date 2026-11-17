@@ -475,17 +475,12 @@ cat > "$OPTIONAL_BIN/etherscan" <<'EOF'
 [ "$*" = "version" ] || exit 99
 printf 'etherscan fixture-version\n'
 EOF
-cat > "$OPTIONAL_BIN/halmos" <<'EOF'
+cat > "$OPTIONAL_BIN/echidna" <<'EOF'
 #!/usr/bin/env bash
 [ "$*" = "--version" ] || exit 99
 exit 13
 EOF
-cat > "$OPTIONAL_BIN/echidna" <<'EOF'
-#!/usr/bin/env bash
-[ "$*" = "--version" ] || exit 99
-printf 'Echidna fixture-version\n'
-EOF
-chmod +x "$OPTIONAL_BIN/etherscan" "$OPTIONAL_BIN/halmos" "$OPTIONAL_BIN/echidna"
+chmod +x "$OPTIONAL_BIN/etherscan" "$OPTIONAL_BIN/echidna"
 env PATH="$OPTIONAL_BIN:$PATH" /bin/bash "$SKILL_DIR/scripts/preflight.sh" \
     "$TMP_ROOT/preflight-optional" >/dev/null
 (
@@ -493,11 +488,10 @@ env PATH="$OPTIONAL_BIN:$PATH" /bin/bash "$SKILL_DIR/scripts/preflight.sh" \
     baseline_mode="$AUDIT_MODE"
     source "$TMP_ROOT/preflight-optional/tool-resolution.env"
     test "$HAS_ETHERSCAN_CLI" = true
-    test "$HAS_HALMOS" = true
     test "$HAS_ECHIDNA" = true
     test "$AUDIT_MODE" = "$baseline_mode"
 )
-grep -Fq '| halmos | available | unknown |' "$TMP_ROOT/preflight-optional/tool-resolution.md"
+grep -Fq '| echidna | available | unknown |' "$TMP_ROOT/preflight-optional/tool-resolution.md"
 
 # Source response retention is tested with real helper control flow but no
 # network access. Preserve full metadata, failed/partial responses and previous
@@ -1789,6 +1783,77 @@ expect_gate_failure() {
 }
 
 # The signed fixture must satisfy the report gate as-is.
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+
+# Target identity is stated once, in target-lock.md: a candidate, manifest and
+# validation record may refer to the lock instead of repeating its values. A
+# value that is neither the locked one nor a reference still fails.
+for ref_file in triage/candidates/C-02.md triage/reproducers/C-02.md triage/validation/C-02.md; do
+    cp "$DEMO_WS/$ref_file" "$DEMO_WS/$ref_file.identity"
+done
+sed \
+    -e 's#^- Target revision:.*#- Target revision: target-lock.md#' \
+    -e 's#^- Deployment / package / program:.*#- Deployment / package / program: target-lock.md#' \
+    -e 's#^- Production build / configuration:.*#- Production build / configuration: target-lock.md#' \
+    "$DEMO_WS/triage/candidates/C-02.md.identity" > "$DEMO_WS/triage/candidates/C-02.md"
+sed \
+    -e 's#^- Target/source revision and artifact hash:.*#- Target/source revision and artifact hash: target-lock.md#' \
+    -e 's#^- Production build/profile or target-identity procedure:.*#- Production build/profile or target-identity procedure: target-lock.md#' \
+    -e 's#^- Chain, deployment/configuration, dependencies:.*#- Chain, deployment/configuration, dependencies: target-lock.md; oracle mocked#' \
+    "$DEMO_WS/triage/reproducers/C-02.md.identity" > "$DEMO_WS/triage/reproducers/C-02.md"
+sed 's#^- Target identity / production configuration:.*#- Target identity / production configuration: target-lock.md, checked against the lock#' \
+    "$DEMO_WS/triage/validation/C-02.md.identity" > "$DEMO_WS/triage/validation/C-02.md"
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+sed 's#^- Target revision:.*#- Target revision: some-other-revision#' \
+    "$DEMO_WS/triage/candidates/C-02.md.identity" > "$DEMO_WS/triage/candidates/C-02.md"
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+expect_gate_failure 'A candidate bound to another revision unexpectedly passed.' \
+    'Target revision must exactly match target-lock.md'
+for ref_file in triage/candidates/C-02.md triage/reproducers/C-02.md triage/validation/C-02.md; do
+    mv "$DEMO_WS/$ref_file.identity" "$DEMO_WS/$ref_file"
+done
+bash "$SKILL_DIR/scripts/triage-index.sh" "$DEMO_WS" >/dev/null
+bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
+
+# --run-poc tests the proof, not its record: a manifest's Rerun command must
+# exit 0 and print its recorded expected output. A manifest without one is a
+# review-procedure package and is reported, not failed.
+POC_MANIFEST="$DEMO_WS/triage/reproducers/C-02.md"
+POC_LOG="$TMP_ROOT/run-poc.log"
+cp "$POC_MANIFEST" "$POC_MANIFEST.poc"
+set_rerun() {
+    {
+        grep -v -e '^- Rerun command:' -e '^- Rerun expected output:' "$POC_MANIFEST.poc"
+        printf -- '- Rerun command: %s\n' "$1"
+        printf -- '- Rerun expected output: %s\n' "$2"
+    } > "$POC_MANIFEST"
+}
+bash "$SKILL_DIR/scripts/triage-check.sh" --run-poc "$DEMO_WS" >"$POC_LOG" 2>&1
+grep -Fq 'has no Rerun command' "$POC_LOG"
+grep -Fq '0 run, 0 reproduced' "$POC_LOG"
+
+set_rerun 'test -d "$AUDIT_SOURCE" && test "$AUDIT_WORKSPACE" = "$(pwd -P)" && printf "[PASS] test_Audit_Demo < 1 > 0\n"' '[PASS] test_Audit_Demo'
+bash "$SKILL_DIR/scripts/triage-check.sh" --run-poc --source "$DEMO_WS/contracts" "$DEMO_WS" >"$POC_LOG" 2>&1
+grep -Fq '1 run, 1 reproduced' "$POC_LOG"
+test -n "$(find "$DEMO_WS/tmp/run-poc" -name 'C-02.log' -size +0 -print | head -1)"
+
+set_rerun 'printf "[FAIL] test_Audit_Demo\n"; exit 3' '[PASS] test_Audit_Demo'
+expect_gate_failure 'A PoC that no longer reproduces unexpectedly passed --run-poc.' \
+    'Rerun command exited 3' --run-poc
+
+set_rerun 'printf "compiled, 0 tests run\n"' '[PASS] test_Audit_Demo'
+expect_gate_failure 'A rerun without its expected output unexpectedly passed --run-poc.' \
+    "lacks the recorded 'Rerun expected output'" --run-poc
+
+set_rerun 'printf ok' 'N/A'
+bash "$SKILL_DIR/scripts/triage-check.sh" --run-poc "$DEMO_WS" >"$POC_LOG" 2>&1
+grep -Fq '1 run, 1 reproduced' "$POC_LOG"
+
+expect_gate_failure 'A missing --source directory unexpectedly passed --run-poc.' \
+    'does not exist; pass --source' --run-poc --source "$TMP_ROOT/no-such-checkout"
+
+mv "$POC_MANIFEST.poc" "$POC_MANIFEST"
 bash "$SKILL_DIR/scripts/triage-check.sh" --report "$DEMO_WS" >/dev/null
 
 # An independently validated finding with no signed decision is a legitimate

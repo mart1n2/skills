@@ -147,7 +147,7 @@ routes; a catalog match is precedent, never proof.
 | 9. Severity calibration (I) | provisional candidate impact assessment; final finding calibration after report-preparation review | main |
 | 10. Report preparation + sign-off | independent validation of selected candidates, record passing findings, human sign-off, then internal report under `reports/` | independent validator + human + main |
 
-Track closure throughout in `audit-workspace/{protocol}/coverage.md`; an unresolved row is a limitation, never a pass.
+Track closure throughout in `audit-workspace/{protocol}/coverage.md`; an unresolved row is a limitation, never a pass. A `COVERED` row states the grade of its evidence (`mock`, `fork` or deployed state); a third-party surface exercised only against the project's own stand-ins is `PARTIAL` (`references/triage.md`, "Metrics and Closure").
 
 ### Workspace Data Retention
 
@@ -167,6 +167,10 @@ not disposable scratch space.
   because it is named `tmp`, a candidate was rejected, or the final report is
   complete. Remove engagement data only on an explicit user instruction and only
   after checking that no retained conclusion depends on it.
+- Build output is the exception: compiler `out`/`cache`/`target` directories
+  and dependency checkouts that are reproducible from retained sources, tests
+  and pinned tool versions are not evidence. Delete them when the run that made
+  them ends; keep the logs, tests, traces and snapshots they produced.
 - OS-level temporary directories may be used for atomic helper implementation
   details that have no audit relevance. Any audit-relevant output created there
   must be copied into the workspace before the operation ends.
@@ -213,8 +217,8 @@ a fix, exposure state, client decision, or retest result during migration.
   surface, report-back format, output acceptance check, validation hand-off,
   two-model milestone audits, retest rounds. Read when more than one agent
   works the audit; the hand-off text is in `templates/briefs/`.
-- `references/evm-tools.md` — read when selecting Etherscan API/CLI acquisition,
-  Halmos symbolic properties, or Echidna campaigns; includes result limits and
+- `references/evm-tools.md` — read when selecting Etherscan API/CLI acquisition
+  or Echidna campaigns; includes result limits and
   retained-evidence guidance. These tools are optional, not audit prerequisites.
 
 **Bundled scripts (all under `scripts/`):**
@@ -227,7 +231,7 @@ a fix, exposure state, client decision, or retest result during migration.
 - `check-compiler.sh` — pragma vs CVE database check
 - `atlas-inventory.sh` — Pass P bootstrap: seed sinks/gates/writes tables from grep over source (EVM / Solana / Move)
 - `triage-index.sh` — deterministically rebuild/check the shared candidate index from one-file-per-candidate sources, reducing multi-agent edit conflicts
-- `triage-check.sh` — portable final acceptance check for pinned scope, closure placeholders, candidate/finding separation, verification artifacts, and independent validation; `--report` additionally requires human sign-off, `--strict-hashes` additionally requires every integrity digest, and `--lint` (alias `--bootstrap`) checks record format and cross-file consistency while the audit is still open, without the end-of-audit closure checks. Every error names the file and field and most carry a fix hint; run `--lint` right after writing a record rather than discovering format drift at the final gate
+- `triage-check.sh` — portable final acceptance check for pinned scope, closure placeholders, candidate/finding separation, verification artifacts, and independent validation; `--report` additionally requires human sign-off, `--strict-hashes` additionally requires every integrity digest, and `--lint` (alias `--bootstrap`) checks record format and cross-file consistency while the audit is still open, without the end-of-audit closure checks, and `--run-poc [--source <checkout>]` re-runs every `Rerun command` recorded in a verification manifest and fails when the proof does not reproduce. Every error names the file and field and most carry a fix hint; run `--lint` right after writing a record rather than discovering format drift at the final gate
 - `retention.sh` — shared non-destructive snapshot helper used before bundled scripts replace audit-relevant current outputs
 - `load-env.sh` — env var loader (sourced by other scripts)
 - `init-workspace.sh` — bootstrap workspace + references
@@ -281,7 +285,7 @@ same in every profile.
 |---------|----------|---------------|------------------|------------------------------|
 | `design` | no code yet, or a design review before code | PRD/TRD/ADRs copied under `contracts/spec/` as target artifacts | numeric simulation of each actor's outcome | `model.md` gains an actor-outcome table (early and late entrant, first mover out, exiting LP, keeper, liquidator; normal, stressed, default cases); deployment rows read `N/A - design review` |
 | `pre-deploy` | source at a commit, nothing live | spec requirement IDs plus source | `CONFIRMED-LOGIC` (state mock or fork) | deployment rows read `N/A - pre-deployment`; findings use `Current deployment: not deployed` and `Deployment/state anchor: NOT APPLICABLE - pre-deployment at <revision>` |
-| `delta` | a re-audit of a diff range against a prior workspace | prior report's scope plus the diff and its transitive callers | as the prior profile | `scope.md` gains a Baseline table (prior workspace, prior report, baseline revision, diff range, transitive scope); `coverage.md` gains a "Reconciled Changes From the Prior Review Baseline" table and the `EXCLUDED - covered by <prior report>` convention for unchanged surfaces |
+| `delta` | a re-audit of a diff range against a prior workspace | prior report's scope plus the diff and its transitive callers | as the prior profile | `scope.md` gains a Baseline table (prior workspace, prior report, baseline revision, diff range, transitive scope); `coverage.md` gains a "Reconciled Changes From the Prior Review Baseline" table, the `EXCLUDED - covered by <prior report>` convention for unchanged surfaces, and a "Missed by the Prior Review" table |
 | `deployed` | a live deployment is in scope (default) | docs plus live state | `CONFIRMED-DEPLOYED` | `target-lock.md` gains the Deployment Reconciliation table (one row per address: code hash, own verification bundle, repository match, getters read at a block, proxy implementation) |
 | `external` | the report will leave the team | as `deployed` or `pre-deploy` | as above | README notes `--strict-hashes` and the external report template; record digests from the start |
 
@@ -312,7 +316,7 @@ capabilities before invoking fetch, RPC, compiler, or Foundry scripts:
 bash "$SKILL_DIR/scripts/preflight.sh" "$WORKSPACE"
 source "$WORKSPACE/tool-resolution.env"
 # Use $HAS_FORGE, $HAS_CAST in conditional logic
-# Optional inventory: $HAS_ETHERSCAN_CLI, $HAS_HALMOS, $HAS_ECHIDNA
+# Optional inventory: $HAS_ETHERSCAN_CLI, $HAS_ECHIDNA
 ```
 
 `AUDIT_MODE` describes those helper capabilities, not the truth of a candidate.
@@ -706,9 +710,12 @@ bash "$SKILL_DIR/scripts/triage-check.sh" --report "$WORKSPACE"
 
 # External/client delivery — also require every integrity digest.
 bash "$SKILL_DIR/scripts/triage-check.sh" --report --strict-hashes "$WORKSPACE"
+
+# Any gate — also re-run each recorded PoC against a checkout at the locked revision.
+bash "$SKILL_DIR/scripts/triage-check.sh" --run-poc --source "$SOURCE_CHECKOUT" "$WORKSPACE"
 ```
 
-Passing the checker catches missing contracts and obvious separation errors; it does not replace independent judgment.
+Passing the checker catches missing contracts and obvious separation errors; it does not replace independent judgment. Only `--run-poc` tests the proof itself: a record can be perfectly formed around a test that no longer passes.
 
 For a `Fixed - Verified` finding, keep the validation method unrestricted
 but store its provenance in the structured `findings.md` fields emitted by
@@ -875,6 +882,12 @@ bash "$SKILL_DIR/scripts/triage-check.sh" --report "$WORKSPACE"
 
 A finding that is evidence-closed but not yet signed off stays in `findings.md` and
 blocks only the report, not the audit.
+
+For an internal report the human decides by reading it: one explicit
+acceptance of the report covers every finding in it, and the main auditor
+transcribes the decision, acceptor and date into those fields. Only the
+`external` profile needs a decision recorded finding by finding
+(`references/triage.md`, "Report Sign-off").
 
 Use `templates/audit-report.md` by default. Build one internal reference report
 from `scope.md`, `target-lock.md`, `findings.md`, `coverage.md`, the security model
