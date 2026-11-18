@@ -43,6 +43,19 @@ Speculative work done on the recommended options: ...
 | Date | Decision | Reason | Requirements changed | Decided by |
 |---|---|---|---|---|
 
+## Protocol study (one per integrated protocol, before its architecture options)
+
+```
+# <Protocol> study     deployment and version studied, date; sources read (docs, repository at a commit, verified source, audited integrators)
+## 1. What it is for              its users and economics: who earns, who pays, what the protocol protects itself against
+## 2. Routes to the outcome needed
+| Route | Entry points | Sync or async, who executes | Cost: protocol fee, execution fee, gas, price impact | Limits: minimum size, caps, delays, cooldowns | What the protocol records | Custom code this route needs |
+## 3. Native features that could replace custom code     its own orders, automation, hooks, batching, isolation, accounting it already keeps
+## 4. Admin powers and failure modes                     feeds the third-party dependency table
+## 5. How others integrate it                            official periphery, audited integrations, known incidents
+## 6. Choice                      route chosen, what it removed from the design, the assumptions left to check on a fork
+```
+
 ## Architecture (`docs/architecture.md`)
 
 ```
@@ -151,6 +164,20 @@ Deferred: ...            Open risks carried: ...
 
 | Version / commit | Gate | Signed off by | Date | Assumptions accepted |
 |---|---|---|---|---|
+
+## Fix evaluation (before the fix is coded; kept with the finding in the audit workspace)
+
+```
+F-NN fix evaluation
+Property to restore: <requirement or invariant ID>
+Sites of the same class: every sibling path, fallback and caller; for each, covered by the fix or why not
+New inputs:
+| State, check or revert the fix adds | Who can move its inputs | Worst case |
+Budgets and neighbours: gas margins, contract size, interfaces and ABIs, runbooks, bots, docs
+Designs, simplest first: remove or restrict the feature / tighten an existing check / new mechanism / accept the risk
+Chosen: <design>, and why each simpler one does not serve
+Design challenge: reviewer and result (required when the fix adds state, a revert path, a role or an interface change)
+```
 
 ## Findings index (`docs/findings.md`, committed)
 

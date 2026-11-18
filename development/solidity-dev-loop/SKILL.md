@@ -5,9 +5,14 @@ description: Development loop for Solidity / EVM systems that hold user funds, f
 
 # Solidity development loop
 
-Contracts that hold funds are expensive to get wrong and often impossible to patch. Most rework in real projects comes from four sources: third-party assumptions never checked on chain, a design-layer decision patched in code, a fix that adds more surface than it removes, and deploy or ops steps treated as outside the system. This loop settles decisions early and makes every later step check against something written down.
+Contracts that hold funds are expensive to get wrong and often impossible to patch. Most rework in real projects comes from four sources: a third-party protocol integrated before it was studied and checked on chain, a design-layer decision patched in code, a fix coded before its design was evaluated, and deploy or ops steps treated as outside the system. This loop settles decisions early and makes every later step check against something written down.
 
-Guiding principle: **less is more.** The fewest contracts, the least state, the smallest change that meets the spec. Every line of custom code is audit surface.
+Guiding principle: **less is more.** The fewest contracts, the least state, the smallest change that meets the spec. Every line of custom code is audit surface, and doing more is not skill.
+
+- Nothing is added unless it is necessary. Every addition (a state variable, role, parameter, check, branch, fallback or option) names the requirement or finding it serves and what breaks without it; one that cannot stays out.
+- Between two designs that meet the spec, the one with the simpler logic wins: less state, fewer branches, fewer actors.
+- Before adding a mechanism, look for the version that removes or narrows something instead.
+- Hardening against a threat the current deployment does not face is deferred scope with its trigger, not code.
 
 ## How to use this skill
 
@@ -49,7 +54,7 @@ The human decides at two gates; between them the agent works in parallel, so nei
 ```
 original requirements (never edited)
   -> [agent, parallel] enriched PRD + ranked open questions
-                       + fork spikes, dependency and exit-liquidity research
+                       + protocol studies, fork spikes, dependency and exit-liquidity research
                        + architecture options (prototyped where they differ in lock risk,
                          custom code or third-party behaviour)
                        + independent design review (audit-lite, design mode)
@@ -66,6 +71,7 @@ original requirements (never edited)
 - **Enriched PRD next to the unedited original.** The original requirements (for example `docs/prd/original.md`) are the source and are never edited. `docs/PRD.md` makes every statement explicit (actors, flows, numbers, states, failure cases, non-goals), traced to the original; everything added is marked derived or an assumption tied to a question.
 - **Open questions derived from the document, then ranked.** Look for vague words ("safe", "low risk"), missing numbers, undefined actors, flows without a failure path, conflicts, implicit third-party assumptions, and what the product clearly varies (assets, chains, number of instances). Each question carries its source, options, consequences and your recommendation. Architecture-shaping questions need an answer; detail questions carry a default the human can accept wholesale. A conflict found later goes onto this list rather than stopping the work. Never ask what code, docs or a fork read can answer.
 - **Who decides.** The human: scope and deferrals, users and trust model, roles and holders, assets, chains and venues, risk appetite (caps, LTV, slippage), economics and fairness, upgrade model, timelock lengths, accepted third-party risks, plus whatever the PRD questions add. The agent: choices with a conventional answer (library, rounding, naming, test layout), written into the spec so the human can overrule them.
+- **Study each third-party protocol before designing around it.** For every protocol or contract to be integrated, read its docs, its source and how audited integrators use it, and write a protocol study (`references/templates.md`): what the protocol is for and how its users and its economics work; every route it offers to the outcome needed (direct call, router or periphery, its own orders, automation, hooks or keepers, batch entry points); per route the cost (protocol fees, execution or keeper fees, gas, price impact), the limits (minimum sizes, caps, delays, cooldowns), what the protocol records and who can change it. The study is where a design gets simpler: a native feature often replaces a mechanism the design was about to build. Every integration's options include the native route with the least custom code, and an option that adds a custom mechanism says which native route it was compared with and why that one does not serve. Using an integrated protocol in a new way updates its study first.
 - **Research that does not depend on the answers runs now:** fork spikes on every third-party assumption (does the token output what you think, is the market live, what do admins control, what does the keeper really execute), exit-liquidity quotes, mock-versus-fork checks, CI scaffolding. Work that depends on an answer may start on the recommended option, marked speculative.
 - **Architecture options.** For each major decision (topology and reuse, protocol integration, sync or async flows, where accounting and valuation live, upgrade model, governance, off-chain keepers and runbooks) give two or three options with trade-offs against the PRD and the invariant. Prototype in parallel subagents only the decisions whose options differ in lock risk, custom code size or third-party behaviour, and measure them on a fork; argue the rest in the ADR.
 - **Independent design review** (audit-lite, design mode) before the human sees the package.
@@ -90,7 +96,7 @@ Record every answer in the decision log and every architecture choice as an ADR 
 
 Present TRD, architecture and plan with remaining assumptions highlighted; the agent never self-approves. After sign-off the loop runs without per-step approval.
 
-**Exit gate:** Gate 2 signed; open questions empty or explicitly accepted as assumptions; every requirement says how it is tested; every third-party assumption checked on a fork; every dependency has a worst case and recovery; every formula maps to a library or is flagged.
+**Exit gate:** Gate 2 signed; open questions empty or explicitly accepted as assumptions; every requirement says how it is tested; every integrated protocol has its study and every assumption about it is checked on a fork; every dependency has a worst case and recovery; every formula maps to a library or is flagged.
 
 ## Phase 2: Build slices, test-first
 
@@ -129,11 +135,18 @@ Changing a live system (replacing a module, moving positions, rotating roles) is
 1. Self-check by requirement ID, not line coverage.
 2. **Independent audit by subagents** per `references/audit-lite.md`, at the cadence above: diff scope for value-moving PRs, full scope at milestones with two auditors on different models; deploy scripts and runbooks in scope.
 3. Every code finding is reproduced as a PoC before code changes, every design finding by a simulation or prototype; a third party's suggested patch is verified like any other code.
-4. **Fix minimally, or accept the risk.** When every fix adds new findings, a documented accepted risk is legitimate (the human signs it off at High or above).
-5. The PoC lands unchanged as the regression test in the fix's commit; later it may be adapted when the code it covers changes, never silently deleted, and reviewers check diffs and merges for removed tests.
-6. Independent retest of every fix; the findings index in the docs records ID, severity, status and regression test.
-7. **Optional, final audit round only:** formal verification (Certora) of the custom core, when the delivery plan asks for it. It runs once the full-scope findings are fixed and retested, so the rules are written once against stable code (`references/checklists.md`, "Formal verification"). A counterexample in the code is a finding like any other: PoC, fix, regression test.
-8. Docs, UI and spec match the code: no claimed features that do not exist, no ADR the code does not follow.
+4. **Evaluate the fix before coding it.** The retest is the backstop, not the design review: a fix designed and coded in one step is corrected a round late, after interfaces, docs and tests have already moved. Write the evaluation first (`references/templates.md`, "Fix evaluation"):
+   - every site of the same class, not only the PoC's path: each sibling `try`, fallback and caller;
+   - for each state variable, check or revert the fix adds, who can move its inputs (anyone, a donation, the caller's gas limit, a keeper, a timelocked action anyone may execute); a revert an outsider can trigger is a new denial of service, so prefer clamping or adjusting;
+   - what it does to existing budgets and neighbours: gas margins, contract size, interfaces, runbooks, bots;
+   - the candidate designs, simplest first: remove or restrict the feature, tighten an existing check, a new mechanism, or accept the risk.
+
+   A fix that adds state, a revert path, a role or an interface change gets an independent design challenge before any code (`references/audit-lite.md`, "Fix design review").
+5. **Fix minimally, or accept the risk.** When every fix adds new findings, a documented accepted risk is legitimate (the human signs it off at High or above).
+6. The PoC lands unchanged as the regression test in the fix's commit; later it may be adapted when the code it covers changes, never silently deleted, and reviewers check diffs and merges for removed tests.
+7. Independent retest of every fix; the findings index in the docs records ID, severity, status and regression test.
+8. **Optional, final audit round only:** formal verification (Certora) of the custom core, when the delivery plan asks for it. It runs once the full-scope findings are fixed and retested, so the rules are written once against stable code (`references/checklists.md`, "Formal verification"). A counterexample in the code is a finding like any other: PoC, fix, regression test.
+9. Docs, UI and spec match the code: no claimed features that do not exist, no ADR the code does not follow.
 
 **Exit gate:** no open finding at Medium or above; Low and Info logged in the findings index; every fix has a regression test; accepted risks documented (High and above signed off); docs match code. Additionally, before the mainnet milestone: an external audit for anything holding real funds. Where formal verification ran, its results are recorded, each unproved rule naming the tests that cover it instead.
 
