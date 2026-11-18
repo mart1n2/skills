@@ -24,9 +24,9 @@ adds only these rules:
 
 ## Modes and cadence
 
-- **Design review** (before Gate 1 and before Gate 2): inputs are the original requirements, the enriched PRD and the architecture options or chosen design, never the author's reasoning. Candidates: contradictions, untestable requirements, missing failure paths, trust assumptions, and actors who gain or lose unfairly. Evidence is a numeric simulation of each actor's outcome (early and late entrants, first mover out, exiting LP, keeper, liquidator) in normal, stressed and default cases, or a prototype run on a fork. Confirmed findings become gate questions or changed options. This mode catches economic design defects that no code audit finds.
+- **Design review** (before Gate 1 and before Gate 2): inputs are the original requirements, the enriched PRD and the architecture options or chosen design, never the author's reasoning. Candidates: contradictions, untestable requirements, missing failure paths, trust assumptions, actors who gain or lose unfairly, anything in the design the PRD does not require, and a candidate design that was dropped or never considered and is simpler than the recommended one. Evidence is a numeric simulation of each actor's outcome (early and late entrants, first mover out, exiting LP, keeper, liquidator) in normal, stressed and default cases, or a prototype run on a fork. Confirmed findings become gate questions or changed options. This mode catches economic design defects that no code audit finds.
 - **Fix design review** (before coding a fix that adds state, a revert path, a role or an interface change): inputs are the finding with its PoC, the code at the commit and the fix evaluation with its chosen design, never the implementer's reasoning beyond that document. The reviewer attacks the design, not the code: sites of the same class it leaves uncovered, actors who can move each new input, a new revert an outsider can trigger, a budget it breaks (gas margin, contract size, interface), and a simpler design that restores the property. One reviewer, reading only. A design it rejects costs a page; the same defect found by the retest costs a round.
-- **PR audit:** one auditor, only for PRs that change value-moving code, roles, valuation or deploy scripts; a PR of comments, tests, docs or configuration gets none. Scope is the diff plus what it can affect: transitive callers, shared storage, invariants reading changed state, external assumptions it relies on, and every operational flow (a sequence a bot, keeper or runbook issues) with a step in the diff, followed end to end.
+- **PR audit:** one auditor, only for PRs that change value-moving code, roles, valuation or deploy scripts; a PR of comments, tests, docs or configuration gets none. Scope is the diff plus what it can affect: transitive callers, shared storage, invariants reading changed state, external assumptions it relies on, and every operational flow (a sequence a bot, keeper or runbook issues) with a step in the diff, followed end to end. The auditor also reports, as Info, any state, role, parameter or branch the diff adds that serves no requirement ID: the implementer is the wrong reviewer of its own additions.
 - **Milestone audit:** before a deployment or migration, at the final audit round before an external audit, after a large feature set merges. Whole system, all invariants, deploy scripts and runbooks, every operational flow from the spec and runbooks followed end to end by one auditor, two auditors on different models. Formal verification is optional and joins only the final round (`checklists.md`).
 
 ## What to load from contract-security-audit
@@ -54,8 +54,8 @@ Skipped: target lock and artifact IDs (the git commit binds), digests, source fe
 
 Severity comes only from the asset-loss gate: Critical and High require a path to loss or permanent lock of assets; otherwise Medium at most.
 
-- **Stop for the human:** every Critical or High. A project may additionally set a size threshold in its CLAUDE.md (for example "any loss of at least 1% of a vault or 100k USD") that also stops the loop; it never lowers a severity.
-- **Agent decides, then reports:** code-layer findings at Medium and below (fix or accept; Low and Info may also be deferred to the index). A spec- or design-layer finding at any severity goes through a spec delta and one human gate.
+- **Agent decides, then reports:** every code-layer fix, at any severity; accepting a risk at Medium or below (Low and Info may also be deferred to the index). The cycle ends after a round with no new finding at Medium or above, or after three rounds.
+- **Stop for the human:** accepting a risk at High or above instead of fixing it; a spec- or design-layer finding at any severity (a spec delta and one gate); the open list at the round cap. A project may additionally set a threshold in its CLAUDE.md (for example "any loss of at least 1% of a vault or 100k USD") that stops the loop; it never lowers a severity.
 
 ## Feedback format
 
@@ -73,7 +73,7 @@ Give the violated property, not a patch: a prescribed patch anchors the implemen
 
 ## Records
 
-- The findings index (`docs/findings.md`, committed): ID, severity, layer, status (open, fixed, accepted, rejected), fixing commit, regression test.
+- The findings index (committed; its own file or a section of the progress document): ID, severity, layer, status (open, fixed, accepted, rejected), fixing commit, regression test.
 - Candidate and validation files stay in the local, gitignored `audit-workspace/`.
 
 ## Cost
