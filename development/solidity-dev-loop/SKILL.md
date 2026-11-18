@@ -131,16 +131,16 @@ Each slice is an inner loop: write the slice's tests, see them fail, implement, 
 | Unit | Happy path and every revert path per requirement ID, exact error selector | Logic, access control |
 | Fuzz | Amounts, decimals, prices, timestamps; `bound()` over `vm.assume()` | Boundaries, rounding, overflow |
 | Invariant | Accounting equals real positions; every holder can exit; full exit leaves no residual value at the venue; allowances return to zero; value conservation. Handlers include adversary actions (donations, dust, same-block deposits) | Bugs across call sequences |
-| Fork | Every third-party call, encoding, permission and state relied on, against the real contracts at a pinned block, including their admin actions (pause, parameter cut, router replacement) and real keeper execution | Wrong assumptions; stand-ins that lie |
+| Fork | Every third-party call, encoding, permission and state relied on, against the real contracts at a pinned block, including their admin actions (pause, parameter cut, router replacement) and real keeper execution | A wrong implementation or a wrong reading of the protocol; stand-ins that lie |
 | Regression | One test per closed finding or incident | The bug returning |
 
-- **Fork tests are mandatory for every third-party dependency.** This is where fork work belongs: the design was settled from the source, and the fork test catches an implementation that does not match it. They assert what the protocol recorded (its stored request, minimum outputs, owner, pending amounts), not only that the call succeeded. Coverage check: every third-party interface function that `src/` calls appears in the traces of the fork suite (`forge test --match-path "test/fork/*" -vvvv`).
+- **Fork tests are mandatory for every third-party dependency.** This is where fork work belongs: the design was settled from the source, and the fork test catches an implementation, or a reading of that source, that does not match the protocol. A wrong reading found here is a design-layer problem and goes back as a spec delta. They assert what the protocol recorded (its stored request, minimum outputs, owner, pending amounts), not only that the call succeeded. Coverage check: every third-party interface function that `src/` calls appears in the traces of the fork suite (`forge test --match-path "test/fork/*" -vvvv`).
 - **Stand-ins are written from the protocol's source**, read and cited in the stand-in, and never replace the fork test. A stand-in that skips one step of the protocol (a subtraction, a freeze rule) hides a wrong encoding for weeks; every fork finding also corrects the stand-in.
 - Fork tests pin a block. Locally a public RPC with a recent block is enough; CI needs an archive RPC from a secret. A project may keep contract CI manual and run the per-change checks locally before each PR; the PR then states what ran.
 - Tests assert the spec's properties, not current behaviour; a test written to "prove" a fallback works can end up asserting the bug.
 - Arithmetic only through the libraries in the formula table. Never edit vendored dependencies; wrap them.
-- **Source code states behaviour, never development history.** Comments and NatSpec in `src/` say what the code does and why, in the present tense. They never cite finding, audit or review IDs, ADR or requirement IDs, PR numbers, dates, or "previously" and "fixed". History lives in commits, PRs, ADRs, the spec, the findings index and test names. Enforce it with a grep over `src/` in the per-change checks (patterns in `references/checklists.md`).
-- **Comments say only what the code cannot.** Worth a comment: an invariant, a rounding direction, why the more direct form is wrong, a third-party behaviour the code relies on. Not worth one: restating the statement below it, or NatSpec that repeats a function or parameter name. NatSpec is for external and public interfaces and for internal functions whose behaviour is not obvious. State a fact once, at the interface, and do not repeat it in the implementation and the library. Design rationale lives in the TRD or an ADR, not in `src/`.
+- **Source code states behaviour, never development history.** Comments and NatSpec in `src/` say what the code does and why, in the present tense. They never cite finding, audit or review IDs, decision or requirement IDs, PR numbers, dates, or "previously" and "fixed". History lives in commits, PRs, the spec and its decisions, the findings index and test names. Enforce it with a grep over `src/` in the per-change checks (patterns in `references/checklists.md`).
+- **Comments say only what the code cannot.** Worth a comment: an invariant, a rounding direction, why the more direct form is wrong, a third-party behaviour the code relies on. Not worth one: restating the statement below it, or NatSpec that repeats a function or parameter name. NatSpec is for external and public interfaces and for internal functions whose behaviour is not obvious. State a fact once, at the interface, and do not repeat it in the implementation and the library. Design rationale lives in the spec's decisions, not in `src/`.
 - Before every commit: formatter, linter with every severity failing (for example `forge lint --deny notes`), contract size under EIP-170, suite green. When a contract interface changes, regenerate the ABIs the off-chain apps consume in the same PR.
 - One PR per concern: a change and the fixes it needs to be complete go together; a separate component or migration gets its own PR.
 
@@ -148,7 +148,7 @@ Each slice is an inner loop: write the slice's tests, see them fail, implement, 
 
 ## Phase 3: Deploy and operations
 
-Deploy scripts, verifiers, runbooks and bots are part of the system and in audit scope. Work through the deploy and checks checklists in `references/checklists.md`; the ones most often missed are the full read-back verifier, granting roles before the deployer renounces, and gates attached before any external deposit.
+Deploy scripts, verifiers, runbooks and bots are part of the system and in audit scope. This phase writes and rehearses them; broadcasting to a network waits for phase 4's exit gate and the human. Work through the deploy and checks checklists in `references/checklists.md`; the ones most often missed are the full read-back verifier, granting roles before the deployer renounces, and gates attached before any external deposit.
 
 Changing a live system (replacing a module, moving positions, rotating roles) is a deployment too: its own scripts, a fork rehearsal against the live state at a recent block, the same verifier, and a runbook. Batch the calls each signer sends to one contract through its `multicall`, so a multisig signs once per contract.
 
@@ -165,7 +165,7 @@ Changing a live system (replacing a module, moving positions, rotating roles) is
    - what it does to existing budgets and neighbours: gas margins, contract size, interfaces, runbooks, bots;
    - the candidate designs, simplest first: remove or restrict the feature, tighten an existing check, a new mechanism, or accept the risk.
 
-   Scale it to the fix: one that adds no state, revert path, role or interface change needs two lines (the sites of the same class, why this is the simplest design). One that adds any of them gets the full evaluation and an independent design challenge before any code (`references/audit-lite.md`, "Fix design review"). The agent decides the fix; the human decides only what "When the loop stops" names.
+   Scale it to the fix: one that adds no state, revert path, role or interface change needs two lines (the sites of the same class, why this is the simplest design). One that adds any of them gets the full evaluation and an independent design challenge before any code (`references/audit-lite.md`, "Fix design review").
 5. **Fix minimally, or accept the risk.** When every fix adds new findings, a documented accepted risk is legitimate (the human signs it off at High or above).
 6. The PoC lands unchanged as the regression test in the fix's commit; later it may be adapted when the code it covers changes, never silently deleted, and reviewers check diffs and merges for removed tests.
 7. Independent retest of every fix; the findings index in the docs records ID, severity, status and regression test.
@@ -183,7 +183,7 @@ spec/architecture --> slices (tests, code) --> deploy/ops --> verify/audit
               code-layer: evaluate, fix + regression test, no gate
 ```
 
-Before fixing anything found late, classify it. A wrong trust assumption, missing exit path, wrong valuation rule or unfair economic outcome is a design-layer problem: write a spec delta (changed requirements and decisions, plan impact), take it through one human gate, then change tests and code. A code-layer problem inside the signed spec is fixed directly with a regression test.
+Before fixing anything found late, classify it. A wrong trust assumption, missing exit path, wrong valuation rule or unfair economic outcome is a design-layer problem: write a spec delta (changed requirements and decisions, plan impact), take it through one human gate, then change tests and code. A code-layer problem inside the signed spec is evaluated, then fixed with a regression test, with no gate.
 
 ## When the loop stops
 
@@ -192,9 +192,7 @@ The loop finishes the whole task by default and stops only when it converges or 
 - **Fixes are the agent's.** A code-layer fix is designed, evaluated, coded and retested without a human go-ahead, at any severity; the round report says what was found and how it was fixed. The human decides at the gates, on a design-layer delta, and on accepting a risk at High or above instead of fixing it.
 - **Converged:** a round with no new confirmed finding at Medium or above ends the audit-fix-retest cycle; Low and Info go to the findings index.
 - **Round cap:** at most three audit-fix-retest rounds per scope (a PR or a milestone); at the cap, hand the human the open list with a recommendation each.
-- **Reopened twice:** a finding whose fix is rejected twice is design-layer; take it back as a spec delta.
-- **No patch on a patch:** a retest finding in a fix reopens its evaluation (the class, the inputs, the simpler designs); the next attempt replaces the fix and does not add a guard on top of it.
-- **No worse fixes:** a fix that introduces a finding at least as severe as the one it closes is reverted; choose accepted risk or design change (the human decides at High or above).
+- **A fix that fails** goes back, not forward. A retest finding in a fix reopens its evaluation (the class, the inputs, the simpler designs), and the next attempt replaces the fix; no guard is added on top of it. A fix that introduces a finding at least as severe as the one it closes is reverted. A finding whose fix is rejected twice is design-layer: take it back as a spec delta, or accept the risk (the human decides at High or above).
 - **Disagreement:** when auditor and validator disagree, one fresh validator decides; if it is still disputed at High or above, the human decides.
 - **Unblock yourself first.** A missing dependency is work: a public RPC for local fork spikes (pin a recent block, since public nodes rarely keep archive state), the explorer's verified source, the protocol's docs or repository for ABIs and behaviour, the project's pinned way to install a tool. Keep working on everything the block does not touch, and list blockers and workarounds at the end.
 - **Stop only for the human's authority:** private or paid keys (including an archive RPC for CI, or a prover key where formal verification is planned), access to private repositories or accounts, spending money, deploying to any network other than a local fork (testnets included), or a business question the documents do not answer. Finish everything else first, then stop with a precise question.
@@ -203,4 +201,4 @@ The loop finishes the whole task by default and stops only when it converges or 
 
 ## Output
 
-New system or integration: the Gate 1 package, then the Gate 2 package. Small change: one light plan with its questions. Existing system or a proposal: gaps against the exit gates, ordered by risk to funds, each with its layer. Always state which exit gates are not met yet, and answer in the user's language.
+New system or integration: the framing questions, the Gate 1 package, then the Gate 2 package. Change to a signed system: its change plan. Fix: its evaluation, then the fix and its retest. Existing system or a proposal: gaps against the exit gates, ordered by risk to funds, each with its layer. Always state which exit gates are not met yet, and answer in the user's language.
