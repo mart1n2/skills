@@ -66,7 +66,7 @@ Speculative work done on the recommended options: ...
 ## 3. Native features that could replace custom code     its own orders, automation, hooks, batching, isolation, accounting it already keeps
 ## 4. Admin powers and failure modes                     feeds the third-party dependency table
 ## 5. How others integrate it                            official periphery, audited integrations, known incidents
-## 6. Choice                      route chosen, what it removed from the design, the assumptions left to check on a fork
+## 6. Choice                      route chosen, what it removed from the design; what the source cannot settle (live state) and was read on a fork; the behaviours the build's fork tests must assert
 ```
 
 ## Architecture (a section of the spec, or its own file where the project separates it)
@@ -88,7 +88,7 @@ Speculative work done on the recommended options: ...
 
 ```
 # <ID> <decision>              Status: proposed | accepted <date> by <who> | superseded by <ID>
-Context: the PRD need and the facts (fork spikes) that constrain it
+Context: the PRD need and the facts (protocol study, fork reads) that constrain it
 Options: A / B / C compared on the decision brief's dimensions; candidates dropped before the gate, one line each
 Decision and reason
 Consequences: requirements, tests and risks it creates
