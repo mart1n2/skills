@@ -38,6 +38,7 @@ Expensive checks repeated on every change cost more than they find: the code sti
 | Unit, fuzz and invariant tests at default runs | Fuzz and invariant at a high-run profile (for example `FOUNDRY_PROFILE=ci`) |
 | Fork tests of the third parties the change touches, run locally | The whole fork suite at its pinned blocks |
 | Diff audit-lite, one auditor, only when the change touches value-moving code, roles or deploy scripts | Full-scope audit-lite, two auditors on different models |
+| Fix evaluation before each fix; a design review when the fix adds state, a revert path, a role or an interface change | |
 | | Fork rehearsal of the full deployment or migration, read-back verifier included |
 | | Optional: formal verification of the custom core, final audit round only (`references/checklists.md`, "Formal verification") |
 
@@ -45,7 +46,7 @@ Expensive checks repeated on every change cost more than they find: the code sti
 
 ## Brownfield entry (existing or deployed code)
 
-Before changing an existing system: reconstruct the spec from code, docs and deployed state (requirement IDs and invariants for what the code actually guarantees); write characterisation tests that pin current behaviour; for deployed contracts read the live configuration, roles, and for proxies the storage layout and initializer state. Mark every behaviour the reconstruction cannot justify as an open question. Then take the reconstructed spec through Gate 2 (no Gate 1 package needed unless the change itself is new architecture) before the first change.
+Before changing an existing system: reconstruct the spec from code, docs and deployed state (requirement IDs and invariants for what the code actually guarantees); write characterisation tests that pin current behaviour; for deployed contracts read the live configuration, roles, and for proxies the storage layout and initializer state. Write the study of each integrated protocol the change touches, where none exists. Mark every behaviour the reconstruction cannot justify as an open question. Then take the reconstructed spec through Gate 2 (no Gate 1 package needed unless the change itself is new architecture) before the first change.
 
 ## Phase 1: Spec and architecture, two human gates
 
@@ -64,7 +65,7 @@ original requirements (never edited)
   -> autonomous loop; milestone reports; stops only per "When the loop stops"
 ```
 
-**Scale.** The full flow is for a new system or a new protocol integration. A small feature (a new function, parameter or asset inside the signed architecture) gets one light gate: a short plan with its open questions, confirmed once. A fix that changes no requirement, role, parameter range or architecture needs no gate. An amendment to a signed spec is a delta (changed PRD and TRD sections, affected ADRs, plan impact) reviewed at one gate.
+**Scale.** The full flow is for a new system or a new protocol integration. A small feature (a new function, parameter or asset inside the signed architecture) gets one light gate: a short plan with its open questions, confirmed once. A fix that changes no requirement, role, parameter range, external interface or architecture needs no gate; it still gets its evaluation (phase 4). An amendment to a signed spec is a delta (changed PRD and TRD sections, affected ADRs, plan impact) reviewed at one gate.
 
 ### Before Gate 1
 
@@ -73,7 +74,7 @@ original requirements (never edited)
 - **Who decides.** The human: scope and deferrals, users and trust model, roles and holders, assets, chains and venues, risk appetite (caps, LTV, slippage), economics and fairness, upgrade model, timelock lengths, accepted third-party risks, plus whatever the PRD questions add. The agent: choices with a conventional answer (library, rounding, naming, test layout), written into the spec so the human can overrule them.
 - **Study each third-party protocol before designing around it.** For every protocol or contract to be integrated, read its docs, its source and how audited integrators use it, and write a protocol study (`references/templates.md`): what the protocol is for and how its users and its economics work; every route it offers to the outcome needed (direct call, router or periphery, its own orders, automation, hooks or keepers, batch entry points); per route the cost (protocol fees, execution or keeper fees, gas, price impact), the limits (minimum sizes, caps, delays, cooldowns), what the protocol records and who can change it. The study is where a design gets simpler: a native feature often replaces a mechanism the design was about to build. Every integration's options include the native route with the least custom code, and an option that adds a custom mechanism says which native route it was compared with and why that one does not serve. Using an integrated protocol in a new way updates its study first.
 - **Research that does not depend on the answers runs now:** fork spikes on every third-party assumption (does the token output what you think, is the market live, what do admins control, what does the keeper really execute), exit-liquidity quotes, mock-versus-fork checks, CI scaffolding. Work that depends on an answer may start on the recommended option, marked speculative.
-- **Architecture options.** For each major decision (topology and reuse, protocol integration, sync or async flows, where accounting and valuation live, upgrade model, governance, off-chain keepers and runbooks) give two or three options with trade-offs against the PRD and the invariant. Prototype in parallel subagents only the decisions whose options differ in lock risk, custom code size or third-party behaviour, and measure them on a fork; argue the rest in the ADR.
+- **Architecture options.** For each major decision (topology and reuse, protocol integration, sync or async flows, where accounting and valuation live, upgrade model, governance, off-chain keepers and runbooks) give two or three options with trade-offs against the PRD and the invariant; one of them is always the least that meets the PRD (reuse, a native route, or deferring the feature with its trigger). Prototype in parallel subagents only the decisions whose options differ in lock risk, custom code size or third-party behaviour, and measure them on a fork; argue the rest in the ADR.
 - **Independent design review** (audit-lite, design mode) before the human sees the package.
 - **Gate 1 package:** a one-page decision brief, the ranked questions, the options with measurements, the enriched PRD and the review findings; about half an hour to review.
 
@@ -120,7 +121,7 @@ Each slice is an inner loop: write the slice's tests, see them fail, implement, 
 - Before every commit: formatter, linter with every severity failing (for example `forge lint --deny notes`), contract size under EIP-170, suite green. When a contract interface changes, regenerate the ABIs the off-chain apps consume in the same PR.
 - One PR per concern: a change and the fixes it needs to be complete go together; a separate component or migration gets its own PR.
 
-**Exit gate per slice:** its tests green, fork tests of the touched dependencies included; lint clean; its requirement IDs covered. At each milestone: the milestone column of "Cadence" done, and every requirement ID in the TRD has a test.
+**Exit gate per slice:** its tests green, fork tests of the touched dependencies included; lint clean; its requirement IDs covered, and no state, role, parameter or branch that serves none of them. At each milestone: the milestone column of "Cadence" done, and every requirement ID in the TRD has a test.
 
 ## Phase 3: Deploy and operations
 
@@ -148,7 +149,7 @@ Changing a live system (replacing a module, moving positions, rotating roles) is
 8. **Optional, final audit round only:** formal verification (Certora) of the custom core, when the delivery plan asks for it. It runs once the full-scope findings are fixed and retested, so the rules are written once against stable code (`references/checklists.md`, "Formal verification"). A counterexample in the code is a finding like any other: PoC, fix, regression test.
 9. Docs, UI and spec match the code: no claimed features that do not exist, no ADR the code does not follow.
 
-**Exit gate:** no open finding at Medium or above; Low and Info logged in the findings index; every fix has a regression test; accepted risks documented (High and above signed off); docs match code. Additionally, before the mainnet milestone: an external audit for anything holding real funds. Where formal verification ran, its results are recorded, each unproved rule naming the tests that cover it instead.
+**Exit gate:** no open finding at Medium or above; Low and Info logged in the findings index; every fix has its evaluation and a regression test; accepted risks documented (High and above signed off); docs match code. Additionally, before the mainnet milestone: an external audit for anything holding real funds. Where formal verification ran, its results are recorded, each unproved rule naming the tests that cover it instead.
 
 ## Loop back to the right layer
 
@@ -156,7 +157,7 @@ Changing a live system (replacing a module, moving positions, rotating roles) is
 spec/architecture --> slices (tests, code) --> deploy/ops --> verify/audit
         ^                                                          |
         +---- design-layer: spec delta -> one human gate ----------+
-              code-layer: fix + regression test, no gate
+              code-layer: evaluate, fix + regression test, no gate
 ```
 
 Before fixing anything found late, classify it. A wrong trust assumption, missing exit path, wrong valuation rule or unfair economic outcome is a design-layer problem: write a spec delta (changed requirements, ADRs, plan impact), take it through one human gate, then change tests and code. A code-layer problem inside the signed spec is fixed directly with a regression test.
@@ -168,6 +169,7 @@ The loop finishes the whole task by default and stops only when it converges or 
 - **Converged:** a round with no new confirmed finding at Medium or above ends the audit-fix-retest cycle; Low and Info go to the findings index.
 - **Round cap:** at most three audit-fix-retest rounds per scope (a PR or a milestone); at the cap, hand the human the open list with a recommendation each.
 - **Reopened twice:** a finding whose fix is rejected twice is design-layer; take it back as a spec delta.
+- **No patch on a patch:** a retest finding in a fix reopens its evaluation (the class, the inputs, the simpler designs); the next attempt replaces the fix and does not add a guard on top of it.
 - **No worse fixes:** a fix that introduces a finding at least as severe as the one it closes is reverted; choose accepted risk or design change (the human decides at High or above).
 - **Disagreement:** when auditor and validator disagree, one fresh validator decides; if it is still disputed at High or above, the human decides.
 - **Unblock yourself first.** A missing dependency is work: a public RPC for local fork spikes (pin a recent block, since public nodes rarely keep archive state), the explorer's verified source, the protocol's docs or repository for ABIs and behaviour, the project's pinned way to install a tool. Keep working on everything the block does not touch, and list blockers and workarounds at the end.

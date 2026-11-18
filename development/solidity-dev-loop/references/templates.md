@@ -32,7 +32,7 @@ Source: docs/prd/original.md (unedited). Status: draft | confirmed at Gate 1 by 
 
 ```
 Decide: 1) <architecture decision> 2) <business decision> ...
-For each: options | consequence | recommendation (first) | evidence (prototype, fork, simulation)
+For each: options | consequence | recommendation (first) | evidence (protocol study, prototype, fork, simulation)
 Detail questions with defaults: Q-07..Q-19 (reply "use the recommendations" to accept all)
 Design review: N findings, M folded into options, K open
 Speculative work done on the recommended options: ...
@@ -64,7 +64,7 @@ Speculative work done on the recommended options: ...
 ## 2. Components                each contract: responsibility, reused library or upstream, custom code size
 ## 3. Value and call flows      deposit, allocate, exit, settle, emergency: who calls what, where funds sit
 ## 4. Accounting and valuation  where state lives, which view prices what, rounding
-## 5. External integrations     per protocol: entry points, sync or async, admin powers, recovery
+## 5. External integrations     per protocol: route chosen from its study, entry points, sync or async, admin powers, recovery
 ## 6. Roles and governance      role matrix, timelocks, risk-reducing emergency powers
 ## 7. Upgrade model             choice and reason
 ## 8. Off-chain components      keepers, bots, runbooks, monitoring: inputs they trust
