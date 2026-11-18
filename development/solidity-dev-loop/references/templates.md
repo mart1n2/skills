@@ -1,6 +1,6 @@
 # Templates
 
-Keep IDs stable so tests, docs and findings can cite them (never `src/` comments). Examples use a neutral `Vault` with `Adapter` modules; rename to the project's domain.
+These are sections, not files: put them in as few documents as the project needs (a spec, a research note per protocol, a plan per change, a progress document). Keep IDs stable so tests, docs and findings can cite them (never `src/` comments). Examples use a neutral `Vault` with `Adapter` modules; rename to the project's domain.
 
 ## Enriched PRD (`docs/PRD.md`; the original stays unedited)
 
@@ -32,18 +32,44 @@ Source: docs/prd/original.md (unedited). Status: draft | confirmed at Gate 1 by 
 
 ```
 Decide: 1) <architecture decision> 2) <business decision> ...
-For each: options | consequence | recommendation (first) | evidence (prototype, fork, simulation)
+For each decision, two to four options that differ in mechanism, the recommended one first:
+|                              | A (recommended) | B | C |
+| Mechanism in one line        |
+| Risk to funds, lock risk     |
+| Trust and roles              |
+| Custom code, audit surface   |
+| Third-party dependence       |
+| Cost: gas, fees, keepers     |
+| Operations burden            |
+| User experience              |
+| Time to build                |
+| Rules out later              |
+| Evidence                     | protocol study, prototype, fork, simulation
+Considered and dropped: <candidate>: <one-line reason>; ...
 Detail questions with defaults: Q-07..Q-19 (reply "use the recommendations" to accept all)
 Design review: N findings, M folded into options, K open
 Speculative work done on the recommended options: ...
 ```
 
-## Decision log
+## Decisions (a section of the spec, or of the change plan for a change)
 
-| Date | Decision | Reason | Requirements changed | Decided by |
-|---|---|---|---|---|
+| ID | Decision | Options compared; candidates dropped | Reason | Requirements changed | Decided by, date |
+|---|---|---|---|---|---|
 
-## Architecture (`docs/architecture.md`)
+## Protocol study (one per integrated protocol, before its architecture options)
+
+```
+# <Protocol> study     deployment and version studied, date; sources read (docs, repository at a commit, verified source, audited integrators)
+## 1. What it is for              its users and economics: who earns, who pays, what the protocol protects itself against
+## 2. Routes to the outcome needed
+| Route | Entry points | Sync or async, who executes | Cost: protocol fee, execution fee, gas, price impact | Limits: minimum size, caps, delays, cooldowns | What the protocol records | Custom code this route needs |
+## 3. Native features that could replace custom code     its own orders, automation, hooks, batching, isolation, accounting it already keeps
+## 4. Admin powers and failure modes                     feeds the third-party dependency table
+## 5. How others integrate it                            official periphery, audited integrations, known incidents
+## 6. Choice                      route chosen, what it removed from the design; what the source cannot settle (live state) and was read on a fork; the behaviours the build's fork tests must assert
+```
+
+## Architecture (a section of the spec, or its own file where the project separates it)
 
 ```
 # <Product> architecture        Status: proposed | agreed at Gate 1 by <who> on <date>
@@ -51,20 +77,19 @@ Speculative work done on the recommended options: ...
 ## 2. Components                each contract: responsibility, reused library or upstream, custom code size
 ## 3. Value and call flows      deposit, allocate, exit, settle, emergency: who calls what, where funds sit
 ## 4. Accounting and valuation  where state lives, which view prices what, rounding
-## 5. External integrations     per protocol: entry points, sync or async, admin powers, recovery
+## 5. External integrations     per protocol: route chosen from its study, entry points, sync or async, admin powers, recovery
 ## 6. Roles and governance      role matrix, timelocks, risk-reducing emergency powers
 ## 7. Upgrade model             choice and reason
 ## 8. Off-chain components      keepers, bots, runbooks, monitoring: inputs they trust
-## 9. Decisions                 links to ADRs
-## 10. Requirement mapping      TRD ID -> component
+## 9. Decisions                 the decisions table
 ```
 
-## ADR (`docs/adr/NNN-<title>.md`)
+## Decision, long form (only when one needs more than a page)
 
 ```
-# ADR-NNN <decision>            Status: proposed | accepted <date> by <who> | superseded by ADR-MMM
-Context: the PRD need and the facts (fork spikes) that constrain it
-Options: A / B / C with trade-offs (custom code, lock risk, trust, cost, what it rules out)
+# <ID> <decision>              Status: proposed | accepted <date> by <who> | superseded by <ID>
+Context: the PRD need and the facts (protocol study, fork reads) that constrain it
+Options: A / B / C compared on the decision brief's dimensions; candidates dropped before the gate, one line each
 Decision and reason
 Consequences: requirements, tests and risks it creates
 ```
@@ -73,9 +98,11 @@ Consequences: requirements, tests and risks it creates
 
 Requirement:
 
-| ID | Requirement | Test(s) |
-|---|---|---|
-| WD-01 | `withdraw` never depends on an oracle read | `test_WithdrawWhenFeedStale`, `invariant_exitAlwaysPossible` |
+| ID | Requirement | Source | Component | Test(s) |
+|---|---|---|---|---|
+| WD-01 | `withdraw` never depends on an oracle read | orig §4, PRD 4.2 | Vault | `test_WithdrawWhenFeedStale`, `invariant_exitAlwaysPossible` |
+
+Source, component and tests are the traceability; no separate matrix is kept.
 
 Role and permission matrix:
 
@@ -128,11 +155,22 @@ Invariants:
 | INV-02 | after any sequence, every holder can exit | all |
 | INV-03 | allowances to venues are zero between calls | all |
 
-## Traceability matrix
+## Change plan (one per change to a signed system; `docs/plans/<change>.md`)
 
-| Original § | PRD § | TRD ID | Component | Tests |
-|---|---|---|---|---|
-| §4 | 4.2 | WD-01 | Vault | test_WithdrawWhenFeedStale, invariant_exitAlwaysPossible |
+```
+# <Change> plan                Status: proposed | confirmed <date> by <who>
+## 1. Scope                    what changes and what does not; requirement IDs touched
+## 2. Options and decision     two to four options compared as in the decision brief; candidates dropped; decisions with IDs
+## 3. Protocol study           link, when a protocol is used in a new way
+## 4. Spec delta               changed requirements and decisions, old and new
+## 5. Design                   interfaces, state, roles; sites of the same class, who can move each new input, budgets (gas, size)
+## 6. Tests                    written before the code: unit, fuzz, invariant, fork, per requirement ID
+## 7. Delivery                 slices, one PR each, in order
+## 8. Deployment or migration  scripts, rehearsal, runbook, read-back
+## 9. Risks                    accepted, with reason; deferred, with trigger
+## 10. Review                  independent review findings and how each was resolved
+```
+Leave out a section the change does not need; a one-function feature may be half a page.
 
 ## Delivery plan (`docs/plan.md`)
 
@@ -152,7 +190,21 @@ Deferred: ...            Open risks carried: ...
 | Version / commit | Gate | Signed off by | Date | Assumptions accepted |
 |---|---|---|---|---|
 
-## Findings index (`docs/findings.md`, committed)
+## Fix evaluation (before the fix is coded; kept with the finding in the audit workspace)
+
+```
+F-NN fix evaluation
+Property to restore: <requirement or invariant ID>
+Sites of the same class: every sibling path, fallback and caller; for each, covered by the fix or why not
+New inputs:
+| State, check or revert the fix adds | Who can move its inputs | Worst case |
+Budgets and neighbours: gas margins, contract size, interfaces and ABIs, runbooks, bots, docs
+Designs, simplest first: remove or restrict the feature / tighten an existing check / new mechanism / accept the risk
+Chosen: <design>, and why each simpler one does not serve
+Design challenge: reviewer and result (required when the fix adds state, a revert path, a role or an interface change)
+```
+
+## Findings index (committed: its own file, or a section of the progress document or the audit report)
 
 | ID | Severity | Layer | Status | Fixing commit | Regression test | Note |
 |---|---|---|---|---|---|---|
